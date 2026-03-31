@@ -30,15 +30,18 @@ The file system (JSON) is the **absolute Source of Truth**. Unity serves strictl
 
 ### 3.1 Directory Structure
 
-Each logical scene maps to a directory containing a manifest and an entities folder.
+Each logical scene maps to a directory containing a manifest, an entities folder, and a commands folder.
 
 ```
 Assets/SceneData/Level_01/
 ├── manifest.json            # Scene metadata (name, schema version)
+├── Commands/                # Short-lived MCP command files (see MCP.md)
 └── Entities/                # One file per object
     ├── 5f3a1b2c...json      # UUID v4 filename matching the entity's uuid field
     └── 9c8d2e1a...json
 ```
+
+The `Commands/` directory is watched by the same `FileSystemWatcher` as `Entities/`. Command files are written by the MCP server, read and executed by the package, then deleted immediately. This keeps all MCP→Unity communication within the file-CRUD model — the MCP server never needs a network connection to Unity.
 
 ### 3.2 Manifest Schema
 
@@ -321,10 +324,10 @@ com.yournamespace.json-scenes-for-unity/
 
 Two validation mechanisms are planned:
 
-1. **JSON Schema file** (`entity.schema.json`, `manifest.schema.json`) — AI tools and editors (VS Code, etc.) can use these to validate files before writing to disk, catching type errors and missing required fields without running Unity.
-2. **CLI validator** — a standalone tool (or Unity menu item) that validates all files in a scene directory against the schema and reports errors. Useful in CI pipelines.
+1. **JSON Schema file** (`entity.schema.json`, `manifest.schema.json`) — AI tools and editors (VS Code, etc.) can use these to validate files before writing to disk, catching type errors and missing required fields without running Unity. No MCP required.
+2. **Unity-side validator** — validates that all entity files can actually be loaded (prefab paths resolve, parent UUIDs exist, component types are found via reflection). This executes code inside Unity and is triggered via the MCP server's `validate_scene` command (see MCP.md).
 
-Both are planned; neither is implemented yet.
+> **MCP Dependency:** The Unity-side validator requires the `validate_scene` command (MCP.md §3). The JSON Schema file validator has no MCP dependency.
 
 ---
 
