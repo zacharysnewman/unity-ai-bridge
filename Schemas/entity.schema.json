@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "entity.schema.json",
+  "title": "JSON Scenes for Unity — Entity",
+  "description": "Schema for a single entity file inside Assets/SceneData/<SceneName>/Entities/",
+  "type": "object",
+  "required": ["uuid", "name", "prefabPath", "transform"],
+  "additionalProperties": false,
+  "properties": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4. Must match the filename (without .json extension)."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name shown in the Unity hierarchy."
+    },
+    "prefabPath": {
+      "type": "string",
+      "description": "Project-relative path to the source prefab (e.g. Assets/Prefabs/Door.prefab), or a primitive identifier (primitive/Cube, primitive/Sphere, etc.).",
+      "examples": [
+        "Assets/Prefabs/Environment/HeavyDoor.prefab",
+        "primitive/Cube",
+        "primitive/Sphere",
+        "primitive/Cylinder",
+        "primitive/Capsule",
+        "primitive/Plane",
+        "primitive/Quad"
+      ]
+    },
+    "parentUuid": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        { "type": "null" }
+      ],
+      "description": "UUID of the parent entity. Omit or null for root-level objects."
+    },
+    "transform": {
+      "type": "object",
+      "required": ["pos", "rot", "scl"],
+      "additionalProperties": false,
+      "description": "Local-space transform (world-space when parentUuid is absent).",
+      "properties": {
+        "pos": {
+          "$ref": "#/$defs/vec3",
+          "description": "Local position [x, y, z] in metres."
+        },
+        "rot": {
+          "$ref": "#/$defs/vec3",
+          "description": "Local Euler angles [x, y, z] in degrees. Matches Unity Inspector values."
+        },
+        "scl": {
+          "$ref": "#/$defs/vec3",
+          "description": "Local scale [x, y, z]."
+        }
+      }
+    },
+    "customData": {
+      "type": "array",
+      "description": "Ordered list of serialized MonoBehaviour components. The Nth entry for a given type maps to the Nth component of that type on the GameObject.",
+      "items": {
+        "$ref": "#/$defs/componentEntry"
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "componentEntry": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Fully-qualified C# class name returned by component.GetType().FullName, e.g. MyGame.Environment.DoorScript."
+        }
+      },
+      "additionalProperties": true,
+      "description": "One serialized component. 'type' identifies the class; remaining properties are the component's serialized fields."
+    }
+  }
+}
