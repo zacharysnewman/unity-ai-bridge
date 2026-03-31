@@ -34,6 +34,7 @@ namespace JsonScenesForUnity.Editor
             = new Dictionary<string, double>(StringComparer.Ordinal);
 
         private static bool _isPlayMode;
+        private static bool _isReloading;
 
         // ─── Static constructor (InitializeOnLoad) ────────────────────────────────
 
@@ -42,10 +43,30 @@ namespace JsonScenesForUnity.Editor
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
 
+            // Stop watcher cleanly before assembly reload; restart after
+            AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
+            AssemblyReloadEvents.afterAssemblyReload += OnAfterAssemblyReload;
+
             // Hook into scene object change events for write pipeline
             ObjectChangeEvents.changesPublished += OnObjectChangesPublished;
 
             // Bootstrap when domain reloads (scene open / recompile)
+            EditorApplication.delayCall += TryBootstrap;
+        }
+
+        // ─── Domain reload handling ───────────────────────────────────────────────
+
+        private static void OnBeforeAssemblyReload()
+        {
+            _isReloading = true;
+            StopWatcher();
+        }
+
+        private static void OnAfterAssemblyReload()
+        {
+            _isReloading = false;
+            // TryBootstrap will be called again via [InitializeOnLoad] after reload,
+            // so no explicit restart needed here — this is a safety fallback.
             EditorApplication.delayCall += TryBootstrap;
         }
 
@@ -129,7 +150,7 @@ namespace JsonScenesForUnity.Editor
 
         private static void OnEditorUpdate()
         {
-            if (_isPlayMode) return;
+            if (_isPlayMode || _isReloading) return;
 
             // Flush FSW events on main thread
             FlushFileEvents();
@@ -227,6 +248,10 @@ namespace JsonScenesForUnity.Editor
 
         private static void ExecuteForceReload(string targetUuid, SceneDataManager manager)
         {
+            // Refresh the asset database first so Unity picks up any file changes
+            // that FileSystemWatcher may have missed (known reliability issue on macOS).
+            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+
             string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
 
             if (!string.IsNullOrEmpty(targetUuid))
@@ -427,6 +452,7 @@ namespace JsonScenesForUnity.Editor
                 Debug.LogWarning("[JsonScenes] No SceneDataManager found in the active scene.");
                 return;
             }
+            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
             EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
         }
 
