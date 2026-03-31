@@ -4,7 +4,7 @@
 
 The MCP (Model Context Protocol) server is a lightweight companion to the Unity package. Its scope is intentionally narrow: it handles operations that require executing code inside the Unity Editor and cannot be reduced to creating, reading, updating, or deleting text files.
 
-Most AI interactions with the scene are pure file CRUD — write an entity file, and the Unity package reacts automatically via its `FileSystemWatcher`. The MCP server is only needed when the AI must *trigger an action* inside Unity, not just change data on disk.
+Most AI interactions with the scene are pure file CRUD — write an entity file, and the Unity package reacts automatically. UUID generation is handled inside Unity by `EntityAssetPostprocessor` (SPEC.md §4.5), not by the MCP server. The MCP server is only needed when the AI must *trigger an action* inside Unity, not just change data on disk.
 
 ---
 
@@ -40,33 +40,6 @@ Command files are ephemeral. The AI tool must not assume a command file persists
 ---
 
 ## 3. Tools
-
-### `generate_uuid`
-
-Generates a single UUID v4 value.
-
-**When to call:** Before writing any new entity JSON file to disk. Must be called for both `Create` and `Duplicate` operations (see SPEC.md §5.2). AI assistants must never fabricate or substitute a UUID string.
-
-**Why not file CRUD:** UUID generation requires a cryptographically random value that cannot be fabricated or guessed. It is not a file operation.
-
-**Input:** None.
-
-**Output:**
-
-```json
-{
-  "uuid": "5f3a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c"
-}
-```
-
-**Workflow:**
-
-1. Call `generate_uuid` → receive `uuid`.
-2. Use `uuid` as both the filename (`[uuid].json`) and the `uuid` field inside the entity file.
-3. Write the entity JSON to `Assets/SceneData/[SceneName]/Entities/[uuid].json`.
-4. The Unity package's `FileSystemWatcher` detects the new file and instantiates the entity automatically. No further MCP call needed.
-
----
 
 ### `force_reload`
 
@@ -123,10 +96,11 @@ The following operations are handled automatically by the Unity package reacting
 
 | Operation | How it works without MCP |
 |---|---|
-| Create entity | Write `[uuid].json` to `Entities/` → FSW triggers instantiation |
+| Create entity | Write entity JSON (no `uuid` field) to `Entities/` → `EntityAssetPostprocessor` assigns UUID and renames file → FSW triggers instantiation |
 | Update entity | Overwrite `[uuid].json` → FSW triggers live update |
 | Delete entity | Delete `[uuid].json` → FSW triggers `DestroyImmediate` |
 | Read scene state | Read files in `Entities/` directly |
+| UUID generation | `EntityAssetPostprocessor` calls `System.Guid.NewGuid()` automatically (see SPEC.md §4.5) |
 | Bootstrap / initial load | Triggered automatically by `[InitializeOnLoad]` |
 | Play Mode transitions | Handled by `EditorApplication.playModeStateChanged` in package |
 | Prefab propagation | Unity's native prefab connection handles it |

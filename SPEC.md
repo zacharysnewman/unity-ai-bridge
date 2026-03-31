@@ -159,6 +159,17 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 - Maps UUIDs to live `GameObject` instances.
 - Serializes all Unity-serializable fields on custom `MonoBehaviour` components (see §6.1).
 
+### 4.5 `EntityAssetPostprocessor` (Editor Script)
+
+Implements `AssetPostprocessor.OnPostprocessAllAssets`. Fires inside Unity whenever files in the project change — more reliable than `FileSystemWatcher` for UUID assignment because it runs through Unity's own asset pipeline.
+
+**UUID injection rule:** filename must always equal the `uuid` field value. Any mismatch or absence triggers assignment:
+
+- **Missing/empty `uuid`:** generate `System.Guid.NewGuid()`, write it into the file, rename to `[uuid].json` via `AssetDatabase.MoveAsset`.
+- **`uuid` field ≠ filename:** treat as a duplicate (e.g., Ctrl+D copy or AI-written file with a placeholder name). Generate a new UUID, update the field, rename.
+
+The AI writes entity files without a `uuid` field. The postprocessor assigns one before the `LiveSyncController` hot-reload pipeline processes the file. No external UUID tool required.
+
 ---
 
 ## 5. Workflows & CRUD Operations
@@ -186,11 +197,9 @@ Managed by `LiveSyncController` intercepting editor change events. All writes us
 | Operation | Trigger | Mechanism |
 |---|---|---|
 | **Update** | `Transform.hasChanged` or any Inspector field change | Debounce timer (~300 ms). Final state at timer expiry is written to `[UUID].json`. Intermediate states are not written. |
-| **Create** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Generate UUID (see below), attach `EntitySync`, apply `DontSave` flag, write `[NEW_UUID].json`. |
+| **Create** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`, apply `DontSave` flag, write `[NEW_UUID].json`. UUID is assigned by `EntityAssetPostprocessor` (§4.5) if not already present. |
 | **Delete** | `ObjectChangeEvents` (object destroyed) | Intercept deletion. Identify UUID via `EntitySync`, call `File.Delete([UUID].json)`. |
-| **Duplicate** | Ctrl+D (clone created) | Intercept clone. Generate new UUID (see below), write new JSON immediately. |
-
-> **MCP Dependency:** The Create and Duplicate operations require a UUID v4 that must not be fabricated by an AI. When the operation is initiated by an AI tool, it must call the `generate_uuid` tool on the MCP server (see MCP.md) before writing any file. When initiated by a human in the Unity editor, `System.Guid.NewGuid()` is used as the fallback. See §6.3.
+| **Duplicate** | Ctrl+D (clone created) | Intercept clone. Write new JSON file with any name; `EntityAssetPostprocessor` detects the filename/UUID mismatch and assigns a fresh UUID automatically. |
 
 ### 5.3 JSON → Unity Editor (Hot-Reload Pipeline)
 
@@ -271,9 +280,7 @@ public struct EntityReference
 
 UUID v4 is used only where the system itself needs a stable identity — specifically, entity filenames and cross-entity `EntityReference` values. Everywhere Unity already provides a native identifier (asset GUIDs, prefab paths, component order), those are used instead; no new UUID systems are introduced beyond what is necessary.
 
-**AI-initiated operations** must call the `generate_uuid` tool on the MCP server (see MCP.md) before writing any entity file. AI assistants must never fabricate or guess UUID strings.
-
-**Human-initiated operations** (prefab dropped in editor, Ctrl+D) use `System.Guid.NewGuid()` inside the Unity package directly, with no MCP involvement.
+UUID generation is handled entirely by `EntityAssetPostprocessor` (§4.5) via `System.Guid.NewGuid()`. **AI tools write entity files without a `uuid` field.** The postprocessor assigns one automatically. AI assistants must never fabricate or guess UUID strings — omit the field and let the postprocessor handle it.
 
 ### 6.4 Version Control & Reversions
 
@@ -304,7 +311,8 @@ com.yournamespace.json-scenes-for-unity/
 │   └── EntityReference.cs
 ├── Editor/
 │   ├── LiveSyncController.cs
-│   └── SceneIO.cs
+│   ├── SceneIO.cs
+│   └── EntityAssetPostprocessor.cs
 ├── Samples~/
 │   └── DemoScene/                      # Optional importable demo
 └── SPEC.md
