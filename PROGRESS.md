@@ -1,8 +1,8 @@
 # Implementation Progress
 
-## Status: Initial Implementation Complete
+## Status: Core Complete + Domain Reload & Setup Window
 
-All core package components have been implemented based on [SPEC.md](SPEC.md) and [MCP.md](MCP.md).
+All core package components implemented. Three additional gaps patched based on review of CoplayDev/unity-mcp.
 
 ---
 
@@ -115,12 +115,41 @@ ES module Node.js server using `@modelcontextprotocol/sdk`:
 
 ---
 
+---
+
+### 10. Domain Reload Handling (`LiveSyncController`)
+**File:** `Editor/LiveSyncController.cs` (patched)
+
+- `AssemblyReloadEvents.beforeAssemblyReload` → `StopWatcher()` + sets `_isReloading = true` so the update loop and write queue don't process stale events
+- `AssemblyReloadEvents.afterAssemblyReload` → clears flag, schedules `TryBootstrap` via `delayCall`
+- FSW no longer silently dies after script recompiles — restarts cleanly on the next `[InitializeOnLoad]` cycle
+
+---
+
+### 11. `force_reload` + `AssetDatabase.Refresh`
+**File:** `Editor/LiveSyncController.cs` (patched)
+
+- `ExecuteForceReload` and `ForceReloadScene` menu item now call `AssetDatabase.Refresh(ForceUpdate | ForceSynchronousImport)` before re-reading entity files
+- Ensures Unity picks up file changes that FSW may have missed on macOS before the scene is re-bootstrapped
+
+---
+
+### 12. Setup Editor Window
+**File:** `Editor/SceneDataManagerWindow.cs`
+
+Minimal setup UI accessible via `JSON Scenes → Setup Window`:
+- **Manager section**: detects whether `SceneDataManager` exists in the scene; shows `sceneDataPath` field with live validation (directory/manifest checks); buttons to create `SceneDataManager`, directory structure, and `manifest.json` automatically
+- **MCP section**: displays copy-pasteable MCP server config snippet for Claude Code
+- **Actions section**: Force Reload Scene and Validate Scene buttons (delegates to existing `LiveSyncController` menu items)
+
+---
+
 ## Known Limitations & Open Items
 
 | Item | Status |
 |---|---|
 | Undo/Redo via `ObjectChangeEvents` | Unverified — needs Unity Editor testing to confirm Undo fires the same change events as direct edits (per SPEC.md §6.4) |
-| FileSystemWatcher reliability on macOS | Known issue — mitigated by `force_reload` MCP tool |
+| FileSystemWatcher reliability on macOS | Known issue — mitigated by `force_reload` MCP tool + `AssetDatabase.Refresh` on force reload |
 | Domain Reload disabled incompatibility | Not supported — requires Unity's default domain reload enabled (per SPEC.md §5.4) |
 | Same-type multi-component reordering | Accepted trade-off — component index maps by order, reordering same-type components breaks index alignment |
 | MCP server `@modelcontextprotocol/sdk` version | Requires `npm install` before first use |
