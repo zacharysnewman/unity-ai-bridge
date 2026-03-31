@@ -4,7 +4,7 @@
 
 The MCP (Model Context Protocol) server is a lightweight companion to the Unity package. Its scope is intentionally narrow: it handles operations that require executing code inside the Unity Editor and cannot be reduced to creating, reading, updating, or deleting text files.
 
-Most AI interactions with the scene are pure file CRUD — write an entity file, and the Unity package reacts automatically. UUID generation is handled inside Unity by `EntityAssetPostprocessor` (SPEC.md §4.5), not by the MCP server. The MCP server is only needed when the AI must *trigger an action* inside Unity, not just change data on disk.
+Most AI interactions with the scene are pure file CRUD — update an entity file, and the Unity package reacts automatically. The MCP server handles two categories of operations: **entity creation** (where the AI needs a UUID before it can write cross-referencing files) and **Unity actions** (operations that require executing code inside the editor).
 
 ---
 
@@ -40,6 +40,41 @@ Command files are ephemeral. The AI tool must not assume a command file persists
 ---
 
 ## 3. Tools
+
+### `create_entity`
+
+Creates a new entity JSON file with a generated UUID and returns the UUID and file path to the AI before any other files are written. This allows the AI to use the UUID in `EntityReference` fields of other entities without any timing dependency on `EntityAssetPostprocessor`.
+
+**Why not file CRUD:** The AI needs the UUID synchronously to populate cross-entity references. Writing a file and waiting for the postprocessor to assign a UUID is non-deterministic from the AI's perspective.
+
+**Input:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `scenePath` | string | Yes | Path to the scene directory (e.g., `Assets/SceneData/Level_01`). |
+| `name` | string | Yes | Display name for the entity. |
+| `prefabPath` | string | Yes | Project-relative prefab path or `primitive/Cube` etc. |
+| `parentUuid` | string | No | UUID of the parent entity, if any. |
+| `transform` | object | No | `{ "pos": [x,y,z], "rot": [x,y,z], "scl": [x,y,z] }`. Defaults to identity if omitted. |
+| `customData` | array | No | Initial component data array. Defaults to `[]` if omitted. |
+
+**Output:**
+
+```json
+{
+  "uuid": "5f3a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
+  "filePath": "Assets/SceneData/Level_01/Entities/5f3a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c.json"
+}
+```
+
+**Workflow:**
+
+1. Call `create_entity` with entity parameters.
+2. Tool generates a UUID, writes the complete entity JSON to `Entities/`, returns `uuid` and `filePath`.
+3. Use the returned `uuid` immediately in any `EntityReference` fields of other entities being written.
+4. The Unity package's `FileSystemWatcher` detects the new file and instantiates the entity. No further MCP call needed.
+
+---
 
 ### `force_reload`
 
@@ -96,11 +131,12 @@ The following operations are handled automatically by the Unity package reacting
 
 | Operation | How it works without MCP |
 |---|---|
-| Create entity | Write entity JSON (no `uuid` field) to `Entities/` → `EntityAssetPostprocessor` assigns UUID and renames file → FSW triggers instantiation |
+| Create entity (AI) | Call `create_entity` MCP tool → returns UUID → FSW triggers instantiation |
+| Create entity (human) | Drag prefab into scene → `EntityAssetPostprocessor` assigns UUID → FSW triggers instantiation |
 | Update entity | Overwrite `[uuid].json` → FSW triggers live update |
 | Delete entity | Delete `[uuid].json` → FSW triggers `DestroyImmediate` |
 | Read scene state | Read files in `Entities/` directly |
-| UUID generation | `EntityAssetPostprocessor` calls `System.Guid.NewGuid()` automatically (see SPEC.md §4.5) |
+| UUID generation (human) | `EntityAssetPostprocessor` calls `System.Guid.NewGuid()` automatically (see SPEC.md §4.5) |
 | Bootstrap / initial load | Triggered automatically by `[InitializeOnLoad]` |
 | Play Mode transitions | Handled by `EditorApplication.playModeStateChanged` in package |
 | Prefab propagation | Unity's native prefab connection handles it |

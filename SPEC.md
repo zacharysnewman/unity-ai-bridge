@@ -90,7 +90,7 @@ Uses **Token-Oriented Object Notation (TOON)** principles to minimize verbosity.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `uuid` | string (UUID v4) | No* | Stable identity. Used as the filename and for cross-entity references. **AI tools omit this field when writing a new entity.** `EntityAssetPostprocessor` (§4.5) assigns it automatically. Never fabricate a UUID string. |
+| `uuid` | string (UUID v4) | Yes* | Stable identity. Used as the filename and for cross-entity references. **AI tools receive this from the MCP `create_entity` tool** (MCP.md §3), which writes the file and returns the UUID. For human-created entities, `EntityAssetPostprocessor` (§4.5) assigns it. Never fabricate a UUID string. |
 | `name` | string | Yes | Display name in the Unity hierarchy. |
 | `prefabPath` | string | Yes | Project-relative path to the source prefab, or a primitive identifier (see §3.4). |
 | `parentUuid` | string (UUID v4) | No | UUID of this entity's parent. Omitted or `null` for root-level objects. |
@@ -148,7 +148,7 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 
 - Manages the `FileSystemWatcher` on the `Entities/` directory.
 - Drives the `EditorApplication.update` loop.
-- Implements debounce logic (~300 ms) to prevent disk thrashing on rapid editor changes.
+- Implements debounce logic (300 ms, non-configurable) to prevent disk thrashing on rapid editor changes.
 - Routes detected file events to `SceneIO` on the main Unity thread via `EditorApplication.delayCall`.
 - Pauses write detection during Play Mode to prevent spurious updates.
 
@@ -163,14 +163,16 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 
 ### 4.5 `EntityAssetPostprocessor` (Editor Script)
 
-Implements `AssetPostprocessor.OnPostprocessAllAssets`. Fires inside Unity whenever files in the project change — more reliable than `FileSystemWatcher` for UUID assignment because it runs through Unity's own asset pipeline.
+Implements `AssetPostprocessor.OnPostprocessAllAssets`. Fires inside Unity whenever files in the project change — runs through Unity's own asset pipeline, which is more reliable than `FileSystemWatcher` for UUID assignment.
+
+Handles **human-initiated** entity creation where MCP is not available:
 
 **UUID injection rule:** filename must always equal the `uuid` field value. Any mismatch or absence triggers assignment:
 
 - **Missing/empty `uuid`:** generate `System.Guid.NewGuid()`, write it into the file, rename to `[uuid].json` via `AssetDatabase.MoveAsset`.
-- **`uuid` field ≠ filename:** treat as a duplicate (e.g., Ctrl+D copy or AI-written file with a placeholder name). Generate a new UUID, update the field, rename.
+- **`uuid` field ≠ filename:** treat as a duplicate (Ctrl+D copy). Generate a new UUID, update the field, rename.
 
-The AI writes entity files without a `uuid` field. The postprocessor assigns one before the `LiveSyncController` hot-reload pipeline processes the file. No external UUID tool required.
+**AI-initiated creation uses the MCP `create_entity` tool instead** (see MCP.md §3), which generates the UUID and writes the complete file atomically, returning the UUID to the AI before any other files are written. The postprocessor acts as a safety net for any file that arrives without a valid UUID.
 
 ---
 
@@ -180,7 +182,7 @@ The AI writes entity files without a `uuid` field. The postprocessor assigns one
 
 Triggered by `[InitializeOnLoad]` or when the shell scene is opened. Loading is **asynchronous** and displays a native Unity progress panel to remain non-blocking for large scenes.
 
-1. Read and validate `manifest.json` (check `schemaVersion`; run migrations if needed).
+1. Read and validate `manifest.json`. If `schemaVersion` does not match the expected version, abort loading and surface an error — no automatic migration is attempted.
 2. Collect all files in `Entities/` into a load queue.
 3. **Async loop — pass 1 (instantiate)** — for each entity file:
    a. Instantiate the prefab (`PrefabUtility.InstantiatePrefab`) or primitive (`GameObject.CreatePrimitive`).
@@ -197,10 +199,11 @@ Managed by `LiveSyncController` intercepting editor change events. All writes us
 
 | Operation | Trigger | Mechanism |
 |---|---|---|
-| **Update** | `Transform.hasChanged` or any Inspector field change | Debounce timer (~300 ms). Final state at timer expiry is written to `[UUID].json`. Intermediate states are not written. |
-| **Create** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`, apply `DontSave` flag, write `[NEW_UUID].json`. UUID is assigned by `EntityAssetPostprocessor` (§4.5) if not already present. |
+| **Update** | `Transform.hasChanged` or any Inspector field change | Debounce timer (300 ms). Final state at timer expiry is written to `[UUID].json`. Intermediate states are not written. |
+| **Create (human)** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`, apply `DontSave` flag. `EntityAssetPostprocessor` (§4.5) assigns UUID and writes file. |
+| **Create (AI)** | MCP `create_entity` call | AI calls `create_entity` with entity parameters; MCP generates UUID, writes complete entity JSON, returns UUID to AI before any other files are written. See MCP.md §3. |
 | **Delete** | `ObjectChangeEvents` (object destroyed) | Intercept deletion. Identify UUID via `EntitySync`, call `File.Delete([UUID].json)`. |
-| **Duplicate** | Ctrl+D (clone created) | Intercept clone. Write new JSON file with any name; `EntityAssetPostprocessor` detects the filename/UUID mismatch and assigns a fresh UUID automatically. |
+| **Duplicate** | Ctrl+D (clone created) | `EntityAssetPostprocessor` detects filename/UUID mismatch on the cloned file and assigns a fresh UUID automatically. |
 
 ### 5.3 JSON → Unity Editor (Hot-Reload Pipeline)
 
@@ -287,7 +290,12 @@ public struct EntityReference
 
 UUID v4 is used only where the system itself needs a stable identity — specifically, entity filenames and cross-entity `EntityReference` values. Everywhere Unity already provides a native identifier (asset GUIDs, prefab paths, component order), those are used instead; no new UUID systems are introduced beyond what is necessary.
 
-UUID generation is handled entirely by `EntityAssetPostprocessor` (§4.5) via `System.Guid.NewGuid()`. **AI tools write entity files without a `uuid` field.** The postprocessor assigns one automatically. AI assistants must never fabricate or guess UUID strings — omit the field and let the postprocessor handle it.
+Two generation paths exist depending on who initiates the creation:
+
+- **AI-initiated:** call the MCP `create_entity` tool (MCP.md §3). The tool generates the UUID, writes the complete entity file, and returns the UUID synchronously. The AI has the UUID before writing any subsequent files that reference it via `EntityReference`.
+- **Human-initiated** (drag-drop, Ctrl+D): `EntityAssetPostprocessor` (§4.5) calls `System.Guid.NewGuid()` and assigns the UUID automatically inside Unity.
+
+AI assistants must never fabricate or guess UUID strings.
 
 ### 6.4 Version Control & Reversions
 
@@ -295,13 +303,13 @@ Because native Unity saving is bypassed:
 
 | Scenario | Mechanism |
 |---|---|
-| **Undo/Redo** | Unity's `Ctrl+Z` functions normally. Reverting triggers the Update write workflow, writing the restored state to JSON via the debounce pipeline. |
+| **Undo/Redo** | Unity's `Ctrl+Z` functions normally. Expected to trigger the Update write workflow via `ObjectChangeEvents` / `Transform.hasChanged`, writing the restored state to JSON via the debounce pipeline. *Unverified — needs confirmation during initial implementation that Undo operations fire the same change events as direct edits.* |
 | **Session Rollback** | `git checkout -- Assets/SceneData/Level_01/` reverts the text files. `FileSystemWatcher` picks up the changes and snaps the editor to the restored state instantly. |
 | **Diff & Review** | Each entity is an isolated file. PRs show per-object diffs rather than a monolithic binary scene blob. |
 
-### 6.5 Schema Versioning & Migration
+### 6.5 Schema Versioning
 
-The `manifest.json` `schemaVersion` integer is incremented for any breaking change to the entity or manifest format. On bootstrap, `SceneIO` reads this value and runs any registered migration functions before loading entities. Entity files themselves do not carry a version field; the manifest version governs the entire scene directory.
+The `manifest.json` `schemaVersion` integer is incremented for any breaking change to the entity or manifest format. On bootstrap, `SceneIO` reads this value and compares it against the package's expected version. If they do not match, loading is aborted and an error is surfaced to the developer. Entity files do not carry individual version fields; the manifest version governs the entire scene directory.
 
 ---
 
