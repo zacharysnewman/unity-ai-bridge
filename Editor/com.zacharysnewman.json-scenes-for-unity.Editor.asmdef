@@ -1,0 +1,19 @@
+{
+  "name": "com.zacharysnewman.json-scenes-for-unity.Editor",
+  "rootNamespace": "JsonScenesForUnity.Editor",
+  "references": [
+    "com.zacharysnewman.json-scenes-for-unity.Runtime",
+    "Newtonsoft.Json"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

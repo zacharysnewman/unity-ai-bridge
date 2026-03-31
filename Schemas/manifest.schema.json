@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "manifest.schema.json",
+  "title": "JSON Scenes for Unity — Scene Manifest",
+  "description": "Schema for the manifest.json file at the root of a scene data directory.",
+  "type": "object",
+  "required": ["schemaVersion", "sceneName"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Incremented on breaking schema changes. Must equal the package's expected version (currently 1) to load the scene."
+    },
+    "sceneName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable scene name. Does not need to match the directory name."
+    }
+  }
+}
