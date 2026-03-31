@@ -18,7 +18,7 @@ The file system (JSON) is the **absolute Source of Truth**. Unity serves strictl
 
 | Principle | Description |
 |---|---|
-| **Shell Scene** | The native `.unity` file contains exactly one persistent object (`SceneDataManager`). All other objects are ephemeral, flagged with `HideFlags.DontSave`. |
+| **Shell Scene** | The native `.unity` file contains exactly one persistent object (`SceneDataManager`). All other objects are ephemeral, flagged with `HideFlags.DontSave`. `DontSave` is a composite of `DontSaveInEditor`, `DontSaveInBuild`, and `DontUnloadUnusedAsset` — it affects persistence only, not editor interactivity. Objects with this flag are fully selectable, moveable, and editable by standard and third-party editor tools. |
 | **Decentralized Entities** | The scene is a directory of individual JSON files — one per entity/prefab instance. AI can grep and edit specific chunks efficiently. |
 | **Live Database Workflow** | There is no traditional "Save Scene" action. Memory and disk state are kept in constant parity. |
 | **Human/AI Readable Types** | Complex Unity types (`Quaternion`, `Color`) are serialized into flat, readable formats (Euler degrees, RGB arrays) to minimize token count and cognitive load. |
@@ -224,7 +224,9 @@ The system serializes **all fields that Unity would normally serialize** on cust
 
 Unity-native components (`Collider`, `Rigidbody`, `MeshRenderer`, etc.) are **not** serialized. They derive their configuration entirely from the source prefab.
 
-`customData` is an **ordered array** of component entries. Each entry contains a `type` field (fully-qualified C# class name) followed by the component's serialized fields inline:
+`customData` is an **ordered array** of component entries. Each entry contains a `type` field followed by the component's serialized fields inline.
+
+The `type` value is the fully-qualified C# class name — the value returned by `component.GetType().FullName` (e.g., `"MyGame.Environment.DoorScript"`). This is Unity's own native identifier for MonoBehaviour types; there is no shorter stable built-in alternative.
 
 ```json
 "customData": [
@@ -305,8 +307,9 @@ com.yournamespace.json-scenes-for-unity/
 - **Editor assembly** (`Editor/`): `LiveSyncController` and `SceneIO` — stripped from player builds automatically.
 - **Dependency**: Newtonsoft.Json (via Unity's `com.unity.nuget.newtonsoft-json` package).
 - **Distribution**: Via **Git URL** in Unity Package Manager. Users add the package by pointing UPM at the GitHub repository URL. No Asset Store or OpenUPM registry required.
-
-> Full `package.json` fields (org name, display name, initial version) are not yet defined. See [Remaining Open Questions](#remaining-open-questions) §B.
+- **Package name**: `com.zacharysnewman.json-scenes-for-unity`
+- **Display name**: JSON Scenes for Unity
+- **Initial version**: 1.0.0
 
 ---
 
@@ -333,22 +336,3 @@ The following are explicitly out of scope for this architecture:
 
 ---
 
-## Remaining Open Questions
-
-The following items require a decision before or during implementation.
-
-### A. Package Identity
-
-The following fields in `package.json` are not yet defined:
-
-- Organization/author name (determines the `com.<org>.` prefix)
-- Display name shown in Package Manager
-- Initial semantic version
-
-### B. Public Headless API
-
-Should the package expose a public C# API usable outside the Unity Editor (e.g., in a CI/CD pipeline or a headless `-batchmode` Unity process) to read, write, or validate scene data programmatically? This would allow populating a scene from an external database or validating a scene directory in a build step without opening the editor interactively.
-
-### C. `HideFlags.DontSave` and Editor Tool Compatibility
-
-Standard editor tools (scene gizmos, multi-select, alignment tools, ProBuilder, etc.) should work with `HideFlags.DontSave` objects since the flag only affects save behavior, not editor interaction. This assumption needs empirical verification during the initial implementation spike.
