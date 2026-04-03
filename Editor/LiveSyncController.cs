@@ -306,35 +306,35 @@ namespace JsonScenesForUnity.Editor
                 switch (type)
                 {
                     case ObjectChangeKind.ChangeGameObjectOrComponentProperties:
-                    {
-                        stream.GetChangeGameObjectOrComponentPropertiesEvent(i, out var ev);
-                        MarkDirtyByInstanceId(ev.instanceId);
-                        break;
-                    }
+                        {
+                            stream.GetChangeGameObjectOrComponentPropertiesEvent(i, out var ev);
+                            MarkDirtyByInstanceId(ev.instanceId);
+                            break;
+                        }
                     case ObjectChangeKind.ChangeGameObjectStructure:
-                    {
-                        stream.GetChangeGameObjectStructureEvent(i, out var ev);
-                        MarkDirtyByInstanceId(ev.instanceId);
-                        break;
-                    }
-                    case ObjectChangeKind.ChangeTransformParenting:
-                    {
-                        stream.GetChangeTransformParentingEvent(i, out var ev);
-                        MarkDirtyByInstanceId(ev.instanceId);
-                        break;
-                    }
+                        {
+                            stream.GetChangeGameObjectStructureEvent(i, out var ev);
+                            MarkDirtyByInstanceId(ev.instanceId);
+                            break;
+                        }
+                    case ObjectChangeKind.ChangeGameObjectParent:
+                        {
+                            stream.GetChangeGameObjectParentEvent(i, out var ev);
+                            MarkDirtyByInstanceId(ev.instanceId);
+                            break;
+                        }
                     case ObjectChangeKind.CreateGameObjectHierarchy:
-                    {
-                        stream.GetCreateGameObjectHierarchyEvent(i, out var ev);
-                        HandleCreateEvent(ev.instanceId);
-                        break;
-                    }
+                        {
+                            stream.GetCreateGameObjectHierarchyEvent(i, out var ev);
+                            HandleCreateEvent(ev.instanceId);
+                            break;
+                        }
                     case ObjectChangeKind.DestroyGameObjectHierarchy:
-                    {
-                        stream.GetDestroyGameObjectHierarchyEvent(i, out var ev);
-                        HandleDestroyEvent(ev.instanceId);
-                        break;
-                    }
+                        {
+                            stream.GetDestroyGameObjectHierarchyEvent(i, out var ev);
+                            HandleDestroyEvent(ev.instanceId);
+                            break;
+                        }
                 }
             }
         }

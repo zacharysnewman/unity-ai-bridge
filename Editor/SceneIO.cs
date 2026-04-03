@@ -95,14 +95,20 @@ namespace JsonScenesForUnity.Editor
                 EditorUtility.DisplayProgressBar("JSON Scenes", $"Instantiating {Path.GetFileName(path)}",
                     (float)i / entityFiles.Length * 0.33f);
 
-                JObject data;
+                var parseSuccess = false;
+                JObject data = null;
                 try
                 {
                     data = JObject.Parse(File.ReadAllText(path));
+                    parseSuccess = true;
                 }
                 catch (Exception e)
                 {
                     Debug.LogWarning($"[JsonScenes] Skipping {path} — parse error: {e.Message}");
+                }
+
+                if (!parseSuccess)
+                {
                     yield return null;
                     continue;
                 }
@@ -366,12 +372,12 @@ namespace JsonScenesForUnity.Editor
                 string meshName = meshFilter.sharedMesh.name;
                 switch (meshName)
                 {
-                    case "Sphere":   return "primitive/Sphere";
-                    case "Cube":     return "primitive/Cube";
+                    case "Sphere": return "primitive/Sphere";
+                    case "Cube": return "primitive/Cube";
                     case "Cylinder": return "primitive/Cylinder";
-                    case "Capsule":  return "primitive/Capsule";
-                    case "Plane":    return "primitive/Plane";
-                    case "Quad":     return "primitive/Quad";
+                    case "Capsule": return "primitive/Capsule";
+                    case "Plane": return "primitive/Plane";
+                    case "Quad": return "primitive/Quad";
                 }
             }
 
