@@ -83,6 +83,15 @@ namespace JsonScenesForUnity.Editor
 
             string[] entityFiles = Directory.GetFiles(entitiesDir, "*.json");
 
+            // Destroy any existing entity GameObjects before re-instantiating (full reload).
+            // SuppressWriteEvents prevents HandleDestroyEvent from deleting the JSON files.
+            LiveSyncController.SuppressWriteEvents = true;
+            var existingEntities = UnityEngine.Object.FindObjectsByType<EntitySync>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var s in existingEntities)
+                UnityEngine.Object.DestroyImmediate(s.gameObject);
+            LiveSyncController.SuppressWriteEvents = false;
+
             manager.ClearRegistry();
 
             // Pass 1 – instantiate
@@ -164,6 +173,9 @@ namespace JsonScenesForUnity.Editor
             }
 
             EditorUtility.ClearProgressBar();
+
+            // Mark scene dirty so Unity saves the newly instantiated persistent entities.
+            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
             Debug.Log($"[JsonScenes] Bootstrap complete — {entityData.Count} entities loaded.");
         }
 
@@ -205,8 +217,6 @@ namespace JsonScenesForUnity.Editor
 
             if (!string.IsNullOrEmpty(entityName))
                 go.name = entityName;
-
-            go.hideFlags = HideFlags.DontSave;
 
             var sync = go.AddComponent<EntitySync>();
             sync.uuid = uuid;
@@ -455,10 +465,11 @@ namespace JsonScenesForUnity.Editor
             GameObject go = manager.GetByUUID(uuid);
             if (go == null)
             {
-                // New entity
+                // New entity — instantiate and mark scene dirty so Unity saves it.
                 go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
                 if (go == null) return;
                 manager.Register(uuid, go);
+                EditorSceneManager.MarkSceneDirty(go.scene);
             }
             else
             {
@@ -496,6 +507,32 @@ namespace JsonScenesForUnity.Editor
                 manager.Unregister(uuid);
                 UnityEngine.Object.DestroyImmediate(go);
             }
+        }
+
+        // ─── Registry rebuild (domain reload / play mode exit) ───────────────────
+
+        /// <summary>
+        /// Scans the active scene for existing EntitySync components and re-registers them
+        /// in the manager. Used after domain reload or Play Mode exit to restore the
+        /// UUID→GameObject lookup without re-instantiating objects.
+        /// Returns the number of entities registered.
+        /// </summary>
+        public static int RebuildRegistry(SceneDataManager manager)
+        {
+            if (manager == null) return 0;
+            manager.ClearRegistry();
+            int count = 0;
+            var syncs = UnityEngine.Object.FindObjectsByType<EntitySync>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var sync in syncs)
+            {
+                if (!string.IsNullOrEmpty(sync.uuid))
+                {
+                    manager.Register(sync.uuid, sync.gameObject);
+                    count++;
+                }
+            }
+            return count;
         }
 
         // ─── Validation ───────────────────────────────────────────────────────────

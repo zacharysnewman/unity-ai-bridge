@@ -9,6 +9,7 @@ namespace JsonScenesForUnity
     /// SceneIO (Editor assembly) populates this via the public API — never the reverse.
     /// Each additively-loaded scene has its own SceneDataManager instance.
     /// </summary>
+    [ExecuteAlways]
     [AddComponentMenu("JSON Scenes/Scene Data Manager")]
     public class SceneDataManager : MonoBehaviour
     {
@@ -25,12 +26,14 @@ namespace JsonScenesForUnity
 
         private readonly Dictionary<string, GameObject> _uuidToGameObject = new Dictionary<string, GameObject>();
 
-        private void Awake()
+        // OnEnable fires on domain reload (with [ExecuteAlways]), Play Mode entry, and scene load.
+        // This ensures _instance is valid after script recompiles without needing Awake.
+        private void OnEnable()
         {
             _instance = this;
         }
 
-        private void OnDestroy()
+        private void OnDisable()
         {
             if (_instance == this)
                 _instance = null;
