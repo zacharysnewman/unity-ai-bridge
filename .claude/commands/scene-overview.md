@@ -1,11 +1,14 @@
-Read all entity files in the scene at the path given in $ARGUMENTS (e.g. `Assets/SceneData/Level_01`).
+Read the scene at the path provided in $ARGUMENTS (ask for it if not provided).
 
 Steps:
-1. List every file in `$ARGUMENTS/Entities/` — these are the entities.
-2. Parse each JSON file and collect: uuid, name, prefabPath, parentUuid.
-3. Build a hierarchy tree: group children under their parents by matching parentUuid → uuid.
-4. Print the tree with indentation showing parent-child relationships. Show `name (prefabPath)` for each node.
-5. Print a summary line: total entity count, how many are root-level vs parented.
-6. If any entity has a parentUuid that doesn't match any known uuid, flag it as a broken reference.
-
-If no path is given in $ARGUMENTS, look for a SceneDataManager by checking if any `manifest.json` exists under `Assets/SceneData/` and use the first one found.
+1. Read `$ARGUMENTS/manifest.json` and note the `sceneName`
+2. List all files in `$ARGUMENTS/Entities/` 
+3. Read every entity JSON file
+4. Build and display a parent-child hierarchy tree using `parentUuid` relationships. Root-level entities (no `parentUuid`) are at the top level; indent children beneath their parent.
+5. For each entity show: name, prefabPath (shortened), and UUID (first 8 chars)
+6. After the tree, print a summary:
+   - Total entity count
+   - Unique prefab types used
+   - Any entities with `customData` (list their types)
+   - Any cross-entity references (`EntityReference` fields) found in customData
+7. Flag any issues: missing parent UUIDs, duplicate UUIDs, malformed files
