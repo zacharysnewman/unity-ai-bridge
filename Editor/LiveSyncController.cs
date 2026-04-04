@@ -388,6 +388,7 @@ namespace JsonScenesForUnity.Editor
             if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
 
             // Attach EntitySync, assign UUID, register, write JSON, and mark scene dirty.
+            // This is the Unity→JSON direction of bidirectional creation.
             var sync = go.AddComponent<EntitySync>();
             sync.uuid = System.Guid.NewGuid().ToString();
             manager.Register(sync.uuid, go);

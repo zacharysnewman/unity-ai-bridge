@@ -1,0 +1,12 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": ["**/Entities/*.json"],
+      "url": "./Schemas/entity.schema.json"
+    },
+    {
+      "fileMatch": ["**/SceneData/**/manifest.json"],
+      "url": "./Schemas/manifest.schema.json"
+    }
+  ]
+}
