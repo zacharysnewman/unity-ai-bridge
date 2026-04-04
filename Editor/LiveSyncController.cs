@@ -384,13 +384,21 @@ namespace JsonScenesForUnity.Editor
             // Skip system objects — SceneDataManager is not an entity.
             if (go.GetComponent<SceneDataManager>() != null) return;
 
-            // The canonical way to create an entity is to write a JSON file to Entities/.
-            // Dragging objects directly into the scene bypasses the JSON Model and creates
-            // objects with no persistent backing. Warn so the developer writes the JSON file.
-            Debug.LogWarning(
-                $"[JsonScenes] '{go.name}' was added to the scene without a JSON entity file. " +
-                $"Write a file to Entities/<uuid>.json (or use /new-entity) to make it persistent. " +
-                $"This object will not survive a Force Reload.");
+            var manager = SceneDataManager.Instance;
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
+
+            // Attach EntitySync, assign UUID, register, write JSON, and mark scene dirty.
+            // This is the Unity→JSON direction of bidirectional creation.
+            var sync = go.AddComponent<EntitySync>();
+            sync.uuid = System.Guid.NewGuid().ToString();
+            manager.Register(sync.uuid, go);
+
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            if (Directory.Exists(entitiesDir))
+                SceneIO.WriteEntity(go, entitiesDir);
+
+            if (go.scene.IsValid())
+                EditorSceneManager.MarkSceneDirty(go.scene);
         }
 
         private static void HandleDestroyEvent(int instanceId)
