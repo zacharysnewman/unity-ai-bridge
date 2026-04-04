@@ -5,6 +5,7 @@ using System.IO;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using JsonScenesForUnity;
 
@@ -35,6 +36,13 @@ namespace JsonScenesForUnity.Editor
 
         private static bool _isPlayMode;
         private static bool _isReloading;
+
+        /// <summary>
+        /// When true, HandleDestroyEvent and HandleCreateEvent skip their write/delete logic.
+        /// Set during the BootstrapScene destruction pass to prevent JSON files from being
+        /// deleted while entities are being re-instantiated.
+        /// </summary>
+        internal static bool SuppressWriteEvents = false;
 
         // ─── Static constructor (InitializeOnLoad) ────────────────────────────────
 
@@ -77,7 +85,19 @@ namespace JsonScenesForUnity.Editor
             var manager = SceneDataManager.Instance;
             if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
 
-            EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
+            // If the scene already has persistent entities, rebuild the registry from them
+            // (domain reload: objects survived, only static C# state was lost).
+            // Only run a full bootstrap if the scene is empty but JSON files exist.
+            int registeredCount = SceneIO.RebuildRegistry(manager);
+            if (registeredCount == 0)
+            {
+                string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+                bool hasJsonFiles = Directory.Exists(entitiesDir) &&
+                                    Directory.GetFiles(entitiesDir, "*.json").Length > 0;
+                if (hasJsonFiles)
+                    EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
+            }
+
             StartWatcher(manager.sceneDataPath);
         }
 
@@ -353,18 +373,37 @@ namespace JsonScenesForUnity.Editor
 
         private static void HandleCreateEvent(int instanceId)
         {
+            if (SuppressWriteEvents) return;
+
             var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
             if (go == null) return;
 
-            // Only manage objects that don't already have EntitySync (avoid double-processing)
+            // Skip objects already managed (created by BootstrapScene or HotReloadEntity).
             if (go.GetComponent<EntitySync>() != null) return;
 
-            go.hideFlags = HideFlags.DontSave;
-            // UUID assignment deferred to EntityAssetPostprocessor when the file is written
+            // Skip system objects — SceneDataManager is not an entity.
+            if (go.GetComponent<SceneDataManager>() != null) return;
+
+            var manager = SceneDataManager.Instance;
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
+
+            // Attach EntitySync, assign UUID, register, write JSON, and mark scene dirty.
+            var sync = go.AddComponent<EntitySync>();
+            sync.uuid = System.Guid.NewGuid().ToString();
+            manager.Register(sync.uuid, go);
+
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            if (Directory.Exists(entitiesDir))
+                SceneIO.WriteEntity(go, entitiesDir);
+
+            if (go.scene.IsValid())
+                EditorSceneManager.MarkSceneDirty(go.scene);
         }
 
         private static void HandleDestroyEvent(int instanceId)
         {
+            if (SuppressWriteEvents) return;
+
             // Object is being destroyed — find its EntitySync before it's gone
             // (instanceId may still resolve briefly)
             var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
@@ -429,11 +468,12 @@ namespace JsonScenesForUnity.Editor
 
                 case PlayModeStateChange.EnteredEditMode:
                     _isPlayMode = false;
-                    // Re-bootstrap after play mode exits
+                    // Entities are persistent — they survived Play Mode intact.
+                    // Just re-register them (static C# state was reset on domain reload).
                     var manager = SceneDataManager.Instance;
                     if (manager != null && !string.IsNullOrEmpty(manager.sceneDataPath))
                     {
-                        EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
+                        SceneIO.RebuildRegistry(manager);
                         StartWatcher(manager.sceneDataPath);
                     }
                     break;
