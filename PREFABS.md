@@ -352,30 +352,6 @@ This is the prefab equivalent of `EntitySync`. It carries the stable UUID that l
 
 ---
 
-## MCP Server Tools
-
-Add to `mcp-server/index.js`:
-
-### `create_prefab_node`
-
-Generates a UUID and writes a new `Nodes/<uuid>.json` in the specified prefab data directory. Returns `{ uuid, filePath }` synchronously so the caller can use the UUID in subsequent cross-references before Unity processes the file.
-
-Parameters: `dataDir` (e.g. `Assets/PrefabData/HeavyDoor`), `name`, `isRoot`, `parentUuid`, `nestedPrefabPath`, `transform`, `customData`
-
-### `force_reload_prefab`
-
-Writes `Commands/force_reload.json` to the prefab data directory. `PrefabLiveSyncController` detects it, reruns `PrefabIO.BootstrapPrefab`, and deletes the command file.
-
-Parameters: `dataDir`
-
-### `validate_prefab`
-
-Writes `Commands/validate.json`. Unity executes `PrefabIO.ValidatePrefab()` and writes the result to `Commands/validate_result.json`. The tool polls for the result file and returns `{ valid, errors }`.
-
-Parameters: `dataDir`
-
----
-
 ## AI Instructions (CLAUDE.md additions)
 
 Add the following section to `CLAUDE.md` (or a dedicated `CLAUDE_PREFABS.md`):
@@ -402,7 +378,7 @@ Use /new-prefab-node for guided node creation with UUID generation.
 ### What NOT to Do
 - Do not create a Nodes/ file without a corresponding root node file
 - Do not write node files during Play Mode
-- Do not fabricate or reuse UUIDs — always use create_prefab_node to get a fresh UUID
+- Do not fabricate or reuse UUIDs — always generate a fresh UUID v4 before writing a node file
 - Do not use direct GameObject or component references in customData — use EntityReference
 ```
 
@@ -413,7 +389,7 @@ Use /new-prefab-node for guided node creation with UUID generation.
 | Command | Purpose |
 |---|---|
 | `/prefab-overview <dataDir>` | Reads all `Nodes/*.json` in the given directory and renders an indented hierarchy with node names, UUIDs, and component types |
-| `/new-prefab-node` | Guided interactive flow: prompts for prefab data directory, node name, parent, optional nested prefab path, generates UUID via `create_prefab_node`, writes file |
+| `/new-prefab-node` | Guided interactive flow: prompts for prefab data directory, node name, parent, optional nested prefab path, generates a fresh UUID, writes the node file |
 
 ---
 
@@ -449,8 +425,7 @@ Implement in this sequence to allow incremental testing at each step:
 5. **`PrefabAssetPostprocessor.cs`** (Editor) — UUID injection + write-on-save; validates that Flow B works end-to-end
 6. **`PrefabLiveSyncController.cs`** (Editor) — FileSystemWatcher + debounce; validates that Flow A works end-to-end
 7. **Schemas** — `prefab-manifest.schema.json`, `prefab-node.schema.json`
-8. **MCP tools** — `create_prefab_node`, `force_reload_prefab`, `validate_prefab`
-9. **AI instructions** — update `CLAUDE.md`; add `/prefab-overview` and `/new-prefab-node` slash commands
+8. **AI instructions** — update `CLAUDE.md`; add `/prefab-overview` and `/new-prefab-node` slash commands
 
 ---
 
