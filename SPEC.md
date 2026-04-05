@@ -35,13 +35,13 @@ Each logical scene maps to a directory containing a manifest, an entities folder
 ```
 Assets/SceneData/Level_01/
 ├── manifest.json            # Scene metadata (name, schema version)
-├── Commands/                # Short-lived MCP command files (see MCP.md)
+├── Commands/                # Short-lived command files (auto-deleted after execution)
 └── Entities/                # One file per object
     ├── 5f3a1b2c...json      # UUID v4 filename matching the entity's uuid field
     └── 9c8d2e1a...json
 ```
 
-The `Commands/` directory is watched by the same `FileSystemWatcher` as `Entities/`. Command files are written by the MCP server, read and executed by the package, then deleted immediately. This keeps all MCP→Unity communication within the file-CRUD model — the MCP server never needs a network connection to Unity.
+The `Commands/` directory is watched by the same `FileSystemWatcher` as `Entities/`. Command files are read and executed by the package, then deleted immediately.
 
 ### 3.2 Manifest Schema
 
@@ -90,7 +90,7 @@ Uses **Token-Oriented Object Notation (TOON)** principles to minimize verbosity.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `uuid` | string (UUID v4) | Yes* | Stable identity. Used as the filename and for cross-entity references. **AI tools receive this from the MCP `create_entity` tool** (MCP.md §3), which writes the file and returns the UUID. For human-created entities, `EntityAssetPostprocessor` (§4.5) assigns it. Never fabricate a UUID string. |
+| `uuid` | string (UUID v4) | Yes | Stable identity. Used as the filename and for cross-entity references. AI tools generate a fresh UUID v4 and write the file directly. For human-created entities, `EntityAssetPostprocessor` (§4.5) assigns it. Never fabricate a UUID string. |
 | `name` | string | Yes | Display name in the Unity hierarchy. |
 | `prefabPath` | string | Yes | Project-relative path to the source prefab, or a primitive identifier (see §3.4). |
 | `parentUuid` | string (UUID v4) | No | UUID of this entity's parent. Omitted or `null` for root-level objects. |
@@ -165,14 +165,14 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 
 Implements `AssetPostprocessor.OnPostprocessAllAssets`. Fires inside Unity whenever files in the project change — runs through Unity's own asset pipeline, which is more reliable than `FileSystemWatcher` for UUID assignment.
 
-Handles **human-initiated** entity creation where MCP is not available:
+Handles **human-initiated** entity creation (drag-drop, Ctrl+D):
 
 **UUID injection rule:** filename must always equal the `uuid` field value. Any mismatch or absence triggers assignment:
 
 - **Missing/empty `uuid`:** generate `System.Guid.NewGuid()`, write it into the file, rename to `[uuid].json` via `AssetDatabase.MoveAsset`.
 - **`uuid` field ≠ filename:** treat as a duplicate (Ctrl+D copy). Generate a new UUID, update the field, rename.
 
-**AI-initiated creation uses the MCP `create_entity` tool instead** (see MCP.md §3), which generates the UUID and writes the complete file atomically, returning the UUID to the AI before any other files are written. The postprocessor acts as a safety net for any file that arrives without a valid UUID.
+AI tools generate a fresh UUID v4, write the complete file directly, and use that UUID in any subsequent cross-referencing files. The postprocessor acts as a safety net for any file that arrives without a valid UUID.
 
 ---
 
@@ -201,7 +201,7 @@ Managed by `LiveSyncController` intercepting editor change events. All writes us
 |---|---|---|
 | **Update** | `Transform.hasChanged` or any Inspector field change | Debounce timer (300 ms). Final state at timer expiry is written to `[UUID].json`. Intermediate states are not written. |
 | **Create (human)** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`, apply `DontSave` flag. `EntityAssetPostprocessor` (§4.5) assigns UUID and writes file. |
-| **Create (AI)** | MCP `create_entity` call | AI calls `create_entity` with entity parameters; MCP generates UUID, writes complete entity JSON, returns UUID to AI before any other files are written. See MCP.md §3. |
+| **Create (AI)** | Direct file write | AI generates a fresh UUID v4, writes the complete entity JSON file, then uses that UUID in any subsequent cross-referencing files. |
 | **Delete** | `ObjectChangeEvents` (object destroyed) | Intercept deletion. Identify UUID via `EntitySync`, call `File.Delete([UUID].json)`. |
 | **Duplicate** | Ctrl+D (clone created) | `EntityAssetPostprocessor` detects filename/UUID mismatch on the cloned file and assigns a fresh UUID automatically. |
 
@@ -292,7 +292,7 @@ UUID v4 is used only where the system itself needs a stable identity — specifi
 
 Two generation paths exist depending on who initiates the creation:
 
-- **AI-initiated:** call the MCP `create_entity` tool (MCP.md §3). The tool generates the UUID, writes the complete entity file, and returns the UUID synchronously. The AI has the UUID before writing any subsequent files that reference it via `EntityReference`.
+- **AI-initiated:** generate a fresh UUID v4, write the complete entity file, then use that UUID in any subsequent files that reference it via `EntityReference`.
 - **Human-initiated** (drag-drop, Ctrl+D): `EntityAssetPostprocessor` (§4.5) calls `System.Guid.NewGuid()` and assigns the UUID automatically inside Unity.
 
 AI assistants must never fabricate or guess UUID strings.
@@ -347,10 +347,8 @@ com.zacharysnewman.json-scenes-for-unity/
 
 Two validation mechanisms are planned:
 
-1. **JSON Schema file** (`entity.schema.json`, `manifest.schema.json`) — AI tools and editors (VS Code, etc.) can use these to validate files before writing to disk, catching type errors and missing required fields without running Unity. No MCP required.
-2. **Unity-side validator** — validates that all entity files can actually be loaded (prefab paths resolve, parent UUIDs exist, component types are found via reflection). This executes code inside Unity and is triggered via the MCP server's `validate_scene` command (see MCP.md).
-
-> **MCP Dependency:** The Unity-side validator requires the `validate_scene` command (MCP.md §3). The JSON Schema file validator has no MCP dependency.
+1. **JSON Schema file** (`entity.schema.json`, `manifest.schema.json`) — AI tools and editors (VS Code, etc.) can use these to validate files before writing to disk, catching type errors and missing required fields without running Unity.
+2. **Unity-side validator** — validates that all entity files can actually be loaded (prefab paths resolve, parent UUIDs exist, component types are found via reflection). Triggered via `JSON Scenes → Validate Scene` or by writing `Commands/validate.json`.
 
 ---
 

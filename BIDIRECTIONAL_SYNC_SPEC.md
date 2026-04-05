@@ -137,10 +137,10 @@ Two generation paths:
 
 | Initiator | Path | Mechanism |
 |---|---|---|
-| **AI tool** | MCP `create_entity` tool | MCP server calls `crypto.randomUUID()`, writes complete entity file, returns `{ uuid, filePath }` to the AI **before** any other files are written. AI has the UUID in hand for any subsequent cross-references. |
+| **AI tool** | Direct file write | AI generates a fresh UUID v4, writes the complete entity file, then uses that UUID in any subsequent cross-referencing files. |
 | **Human (drag-drop, Ctrl+D)** | `AssetPostprocessor` or scene creation hook | `System.Guid.NewGuid()` called automatically; UUID injected into file and `DataLink` component. |
 
-AI tools must **never fabricate or guess UUID strings**. UUIDs must come from the `create_entity` tool.
+AI tools must **never fabricate or guess UUID strings**. Always generate a fresh UUID v4 before writing a file.
 
 ---
 
