@@ -14,7 +14,7 @@ namespace JsonScenesForUnity.Editor
     ///   - Missing/empty uuid  → generate new UUID, write it into the file, rename to [uuid].json
     ///   - uuid field ≠ filename → treat as a duplicate (Ctrl+D copy). Generate new UUID, update field, rename.
     ///
-    /// AI-initiated creation uses the MCP create_entity tool instead (see MCP.md §3).
+    /// AI tools write entity files directly with a pre-generated UUID.
     /// This postprocessor acts as a safety net for any file arriving without a valid UUID.
     /// </summary>
     public class EntityAssetPostprocessor : AssetPostprocessor

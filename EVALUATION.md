@@ -6,7 +6,7 @@ This document evaluates how well the current codebase aligns with the architectu
 
 ## Summary Verdict
 
-The current implementation is a **well-built system** that handles the bidirectional sync flows correctly at the mechanism level. The MCP tooling, file watching, write pipeline, debounce, diff guard, UUID identity, and component serialization are all solid.
+The current implementation is a **well-built system** that handles the bidirectional sync flows correctly at the mechanism level. The file watching, write pipeline, debounce, diff guard, UUID identity, and component serialization are all solid.
 
 However, there is one **fundamental architectural divergence** that undermines the core promise of the spec — specifically, the Play Mode and Build Mode guarantees. This is not a surface-level bug; it is a deliberate design choice in the current `SPEC.md` that conflicts with the target architecture described in `BIDIRECTIONAL_SYNC_SPEC.md`.
 
@@ -89,28 +89,25 @@ These components of the current implementation align with the spec and require n
 ### 2.4 Debounce and Diff Guard ✅
 300ms debounce prevents thrashing during drag operations. The diff guard in `SceneIO` skips writes when the serialized output is identical to the existing file. Both are correct.
 
-### 2.5 MCP Tooling ✅
-`create_entity` generates UUID, writes file atomically, returns UUID to AI before any cross-referencing files are written. `force_reload` and `validate_scene` are implemented. The file-based communication model (no network) is correct.
-
-### 2.6 Per-Entity Files ✅
+### 2.5 Per-Entity Files ✅
 One JSON file per entity. Git-friendly. AI can grep and edit individual files. The directory structure (`Entities/`, `Commands/`, `manifest.json`) is correct.
 
-### 2.7 Component Serialization ✅
+### 2.6 Component Serialization ✅
 Only `MonoBehaviour` subclasses are serialized. Built-in Unity components (MeshRenderer, Rigidbody, etc.) are excluded — they live in the prefab. Public fields and `[SerializeField]` private fields are serialized via reflection. Multi-component-by-type index matching is implemented.
 
-### 2.8 EntityReference ✅
+### 2.7 EntityReference ✅
 Cross-entity references use `EntityReference` struct wrapping a `targetUUID` string. Direct `GameObject`/`MonoBehaviour` references are prohibited. Runtime resolution via `SceneDataManager.Instance.GetByUUID`.
 
-### 2.9 Assembly Isolation ✅
+### 2.8 Assembly Isolation ✅
 Editor scripts (`LiveSyncController`, `SceneIO`, `EntityAssetPostprocessor`) are in the Editor assembly and stripped from builds. Runtime scripts (`SceneDataManager`, `EntitySync`, `EntityReference`) are in the Runtime assembly. Correct.
 
-### 2.10 EntityAssetPostprocessor ✅
+### 2.9 EntityAssetPostprocessor ✅
 Handles human-initiated file creation (drag-drop, Ctrl+D copy). UUID injection and filename normalization are correct.
 
-### 2.11 Three-Pass Bootstrap Logic ✅
+### 2.10 Three-Pass Bootstrap Logic ✅
 The bootstrap sequence (instantiate → wire hierarchy → apply transforms) is correct and necessary. The ordering ensures local-space transforms are applied only after the parent hierarchy is established. This logic should be preserved even as bootstrap transitions from "mandatory on every open" to "optional recovery operation."
 
-### 2.12 Domain Reload Handling ✅
+### 2.11 Domain Reload Handling ✅
 `AssemblyReloadEvents` stop/restart the `FileSystemWatcher` cleanly. The `[InitializeOnLoad]` cycle restarts correctly after script recompiles.
 
 ---

@@ -27,8 +27,6 @@ namespace JsonScenesForUnity.Editor
 
             DrawManagerSection();
             EditorGUILayout.Space(8);
-            DrawMcpSection();
-            EditorGUILayout.Space(8);
             DrawActionsSection();
         }
 
@@ -95,30 +93,6 @@ namespace JsonScenesForUnity.Editor
                         MessageType.Info);
                 }
             }
-        }
-
-        // ─── MCP server section ───────────────────────────────────────────────────
-
-        private void DrawMcpSection()
-        {
-            GUILayout.Label("MCP Server", EditorStyles.boldLabel);
-
-            EditorGUILayout.HelpBox(
-                "The MCP server runs as a local Node.js process alongside the Unity Editor.\n" +
-                "Add the snippet below to your Claude Code MCP settings.",
-                MessageType.None);
-
-            EditorGUILayout.SelectableLabel(
-                "{\n" +
-                "  \"mcpServers\": {\n" +
-                "    \"json-scenes-for-unity\": {\n" +
-                "      \"command\": \"node\",\n" +
-                "      \"args\": [\"<path-to-package>/mcp-server/index.js\"]\n" +
-                "    }\n" +
-                "  }\n" +
-                "}",
-                EditorStyles.helpBox,
-                GUILayout.Height(110));
         }
 
         // ─── Actions section ──────────────────────────────────────────────────────

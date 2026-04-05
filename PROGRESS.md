@@ -75,7 +75,7 @@ Full serialization engine:
 - UUID injection rule enforcement:
   - Missing/empty `uuid` → `Guid.NewGuid()`, write field, rename file via `AssetDatabase.MoveAsset`
   - `uuid` ≠ filename → duplicate detected → new UUID, update field, rename
-- Safety net for human-created entity files (AI uses MCP `create_entity` instead)
+- Safety net for human-created entity files (AI writes files directly)
 
 ---
 
@@ -100,21 +100,6 @@ Full serialization engine:
 - JSON Schema Draft-07 schemas for offline validation by AI tools and VS Code
 - `entity.schema.json`: validates `uuid` (UUID v4 pattern), `name`, `prefabPath`, `parentUuid`, `transform` (vec3 arrays), `customData` (typed component entries)
 - `manifest.schema.json`: validates `schemaVersion` (integer ≥ 1) and `sceneName`
-- No MCP dependency — usable entirely offline
-
----
-
-### 9. MCP Server (Node.js)
-**Files:** `mcp-server/package.json`, `mcp-server/index.js`
-
-ES module Node.js server using `@modelcontextprotocol/sdk`:
-
-- **`create_entity`**: generates UUID v4 via `crypto.randomUUID()`, writes complete entity JSON, returns `{ uuid, filePath }` — AI has UUID before writing any cross-referencing files
-- **`force_reload`**: writes a command file to `Commands/` (fire-and-forget); supports per-entity or full-scene reload
-- **`validate_scene`**: writes validate command file, polls for Unity's `validate_result.json` (15 s timeout, 200 ms interval), returns result JSON
-
----
-
 ---
 
 ### 10. Domain Reload Handling (`LiveSyncController`)
@@ -139,7 +124,6 @@ ES module Node.js server using `@modelcontextprotocol/sdk`:
 
 Minimal setup UI accessible via `JSON Scenes → Setup Window`:
 - **Manager section**: detects whether `SceneDataManager` exists in the scene; shows `sceneDataPath` field with live validation (directory/manifest checks); buttons to create `SceneDataManager`, directory structure, and `manifest.json` automatically
-- **MCP section**: displays copy-pasteable MCP server config snippet for Claude Code
 - **Actions section**: Force Reload Scene and Validate Scene buttons (delegates to existing `LiveSyncController` menu items)
 
 ---
@@ -149,10 +133,9 @@ Minimal setup UI accessible via `JSON Scenes → Setup Window`:
 | Item | Status |
 |---|---|
 | Undo/Redo via `ObjectChangeEvents` | Unverified — needs Unity Editor testing to confirm Undo fires the same change events as direct edits (per SPEC.md §6.4) |
-| FileSystemWatcher reliability on macOS | Known issue — mitigated by `force_reload` MCP tool + `AssetDatabase.Refresh` on force reload |
+| FileSystemWatcher reliability on macOS | Known issue — mitigated by `AssetDatabase.Refresh` on force reload |
 | Domain Reload disabled incompatibility | Not supported — requires Unity's default domain reload enabled (per SPEC.md §5.4) |
 | Same-type multi-component reordering | Accepted trade-off — component index maps by order, reordering same-type components breaks index alignment |
-| MCP server `@modelcontextprotocol/sdk` version | Requires `npm install` before first use |
 
 ---
 
@@ -162,7 +145,6 @@ Minimal setup UI accessible via `JSON Scenes → Setup Window`:
 com.zacharysnewman.json-scenes-for-unity/
 ├── package.json
 ├── SPEC.md
-├── MCP.md
 ├── PROGRESS.md
 ├── Runtime/
 │   ├── com.zacharysnewman.json-scenes-for-unity.Runtime.asmdef
@@ -177,7 +159,4 @@ com.zacharysnewman.json-scenes-for-unity/
 ├── Schemas/
 │   ├── entity.schema.json
 │   └── manifest.schema.json
-└── mcp-server/
-    ├── package.json
-    └── index.js
 ```
