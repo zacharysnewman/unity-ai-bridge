@@ -36,6 +36,59 @@ Use `/scene-overview Assets/SceneData/Level_01` for a formatted hierarchy view.
 
 ---
 
+## Making Scene Changes
+
+JSON files are the mechanism for all scene edits. Every file you create, modify, or delete is reflected in Unity within ~300ms — no manual sync, save, or button press is needed.
+
+### Step 1 — Read first
+
+Never modify the scene blind. Start by reading what's already there:
+
+```bash
+/scene-overview Assets/SceneData/Level_01
+```
+
+Or read individual entity files to understand their current state before editing them.
+
+### Step 2 — Map intent to file operations
+
+| What you want to do | File operation |
+|---|---|
+| Add a new object | Create `Entities/<new-uuid>.json` |
+| Move / rotate / scale an object | Edit `transform.pos`, `transform.rot`, or `transform.scl` |
+| Rename an object | Edit `name` |
+| Reparent an object | Edit `parentUuid` to the new parent's UUID |
+| Detach from parent (make root-level) | Set `parentUuid` to `null` |
+| Change a component value | Edit the relevant field inside `customData` |
+| Initialize data for a component on the prefab | Add a new entry to `customData` with the correct `type` and field values |
+| Delete an object | Delete `Entities/<uuid>.json` — child entities are removed automatically |
+| Duplicate an object | Create a new file with a fresh UUID; copy all other fields |
+| Change which prefab an object uses | Edit `prefabPath` — Unity will destroy and reinstantiate the object |
+
+The following operations are **not supported** via JSON — do not add fields for them, as they will be silently ignored:
+
+| What you want to do | Why it's not in the JSON |
+|---|---|
+| Enable / disable an object | No `active` field — controlled by the prefab |
+| Change layer or tag | Not serialized — defined on the prefab |
+| Reorder siblings | No sibling-index field — order is not guaranteed |
+| Add a built-in component | Built-in components (Collider, Rigidbody, etc.) come from the prefab only |
+
+### Step 3 — Execute in dependency order
+
+When making multiple changes, order matters:
+
+1. **Create parents before children** — a child's `parentUuid` must refer to an already-existing file
+2. **Create referenced entities before referencing ones** — any UUID used in `EntityReference` fields must exist on disk first
+3. **Delete children before parents** — though deleting a parent automatically removes children, deleting explicitly is clearer
+
+### When not to edit JSON
+
+- **During Play Mode** — the write pipeline is suspended; changes will be overwritten when Play Mode exits
+- **To change built-in component values** (Rigidbody, Collider, MeshRenderer, etc.) — these come from the prefab and are not in the JSON
+
+---
+
 ## Entity File Format
 
 ```json
@@ -76,10 +129,12 @@ Use `/scene-overview Assets/SceneData/Level_01` for a formatted hierarchy view.
 
 ## UUID Rules
 
-- Generate fresh UUID v4 strings: `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`
+- **Never fabricate or guess a UUID** — always generate one using the system UUID generator:
+  ```bash
+  uuidgen | tr '[:upper:]' '[:lower:]'
+  ```
 - The filename must equal the `uuid` field value exactly (without `.json`)
 - **Never reuse or modify an existing entity's UUID**
-- **Never fabricate or guess a UUID** — always generate a fresh one
 - When creating entity A that will be referenced by entity B: create A first, record its UUID, then create B
 
 ---

@@ -1,7 +1,10 @@
 Create a new entity JSON file in the scene at the path given in $ARGUMENTS (e.g. `Assets/SceneData/Level_01`).
 
 Steps:
-1. Generate a fresh UUID v4 (format: `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`). Never reuse an existing UUID.
+1. Generate a UUID using the system UUID generator — never fabricate one:
+   ```bash
+   uuidgen | tr '[:upper:]' '[:lower:]'
+   ```
 2. Ask the user (or infer from context) for:
    - `name` — display name for the hierarchy
    - `prefabPath` — project-relative prefab path (e.g. `Assets/Prefabs/Rock.prefab`) or a primitive (`primitive/Cube`, `primitive/Sphere`, etc.)
