@@ -36,6 +36,48 @@ Use `/scene-overview Assets/SceneData/Level_01` for a formatted hierarchy view.
 
 ---
 
+## Making Scene Changes
+
+JSON files are the mechanism for all scene edits. Every file you create, modify, or delete is reflected in Unity within ~300ms — no manual sync, save, or button press is needed.
+
+### Step 1 — Read first
+
+Never modify the scene blind. Start by reading what's already there:
+
+```bash
+/scene-overview Assets/SceneData/Level_01
+```
+
+Or read individual entity files to understand their current state before editing them.
+
+### Step 2 — Map intent to file operations
+
+| What you want to do | File operation |
+|---|---|
+| Add a new object | Create `Entities/<new-uuid>.json` |
+| Move / rotate / scale an object | Edit `transform.pos`, `transform.rot`, or `transform.scl` |
+| Rename an object | Edit `name` |
+| Reparent an object | Edit `parentUuid` |
+| Change a component value | Edit the relevant field inside `customData` |
+| Delete an object | Delete `Entities/<uuid>.json` — child entities are removed automatically |
+| Duplicate an object | Create a new file with a fresh UUID; copy all other fields |
+| Change which prefab an object uses | Edit `prefabPath` — Unity will destroy and reinstantiate the object |
+
+### Step 3 — Execute in dependency order
+
+When making multiple changes, order matters:
+
+1. **Create parents before children** — a child's `parentUuid` must refer to an already-existing file
+2. **Create referenced entities before referencing ones** — any UUID used in `EntityReference` fields must exist on disk first
+3. **Delete children before parents** — though deleting a parent automatically removes children, deleting explicitly is clearer
+
+### When not to edit JSON
+
+- **During Play Mode** — the write pipeline is suspended; changes will be overwritten when Play Mode exits
+- **To change built-in component values** (Rigidbody, Collider, MeshRenderer, etc.) — these come from the prefab and are not in the JSON
+
+---
+
 ## Entity File Format
 
 ```json
