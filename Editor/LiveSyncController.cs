@@ -97,6 +97,12 @@ namespace JsonScenesForUnity.Editor
                 if (hasJsonFiles)
                     EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
             }
+            else
+            {
+                // Scene has persistent entities — destroy any that have no backing JSON file.
+                // This enforces the invariant: every EntitySync must have a corresponding file.
+                SceneIO.PruneOrphanEntities(manager);
+            }
 
             StartWatcher(manager.sceneDataPath);
         }

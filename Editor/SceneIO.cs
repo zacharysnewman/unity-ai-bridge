@@ -535,6 +535,41 @@ namespace JsonScenesForUnity.Editor
             return count;
         }
 
+        // ─── Orphan pruning ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Destroys any scene entities that have an EntitySync component but no corresponding
+        /// JSON file on disk. Enforces the invariant that every managed entity has a backing file.
+        /// Called on startup after RebuildRegistry when the scene already has persistent entities.
+        /// </summary>
+        public static void PruneOrphanEntities(SceneDataManager manager)
+        {
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+
+            // Snapshot UUIDs before modifying the registry
+            var orphans = new List<string>();
+            foreach (string uuid in manager.GetAllUUIDs())
+            {
+                string filePath = Path.Combine(entitiesDir, uuid + ".json");
+                if (!File.Exists(filePath))
+                    orphans.Add(uuid);
+            }
+
+            if (orphans.Count == 0) return;
+
+            // SuppressWriteEvents prevents HandleDestroyEvent from also deleting the
+            // JSON files of any children destroyed as a side-effect of parent destruction.
+            LiveSyncController.SuppressWriteEvents = true;
+            foreach (string uuid in orphans)
+                DestroyEntity(uuid, manager);
+            LiveSyncController.SuppressWriteEvents = false;
+
+            // Rebuild registry to clear stale entries for children destroyed above.
+            RebuildRegistry(manager);
+
+            Debug.Log($"[JsonScenes] Pruned {orphans.Count} orphan entit{(orphans.Count == 1 ? "y" : "ies")} with no backing JSON file.");
+        }
+
         // ─── Validation ───────────────────────────────────────────────────────────
 
         /// <summary>
