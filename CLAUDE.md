@@ -129,10 +129,12 @@ When making multiple changes, order matters:
 
 ## UUID Rules
 
-- Generate fresh UUID v4 strings: `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`
+- **Never fabricate or guess a UUID** — always generate one using the system UUID generator:
+  ```bash
+  uuidgen | tr '[:upper:]' '[:lower:]'
+  ```
 - The filename must equal the `uuid` field value exactly (without `.json`)
 - **Never reuse or modify an existing entity's UUID**
-- **Never fabricate or guess a UUID** — always generate a fresh one
 - When creating entity A that will be referenced by entity B: create A first, record its UUID, then create B
 
 ---
