@@ -57,11 +57,22 @@ Or read individual entity files to understand their current state before editing
 | Add a new object | Create `Entities/<new-uuid>.json` |
 | Move / rotate / scale an object | Edit `transform.pos`, `transform.rot`, or `transform.scl` |
 | Rename an object | Edit `name` |
-| Reparent an object | Edit `parentUuid` |
+| Reparent an object | Edit `parentUuid` to the new parent's UUID |
+| Detach from parent (make root-level) | Set `parentUuid` to `null` |
 | Change a component value | Edit the relevant field inside `customData` |
+| Initialize data for a component on the prefab | Add a new entry to `customData` with the correct `type` and field values |
 | Delete an object | Delete `Entities/<uuid>.json` — child entities are removed automatically |
 | Duplicate an object | Create a new file with a fresh UUID; copy all other fields |
 | Change which prefab an object uses | Edit `prefabPath` — Unity will destroy and reinstantiate the object |
+
+The following operations are **not supported** via JSON — do not add fields for them, as they will be silently ignored:
+
+| What you want to do | Why it's not in the JSON |
+|---|---|
+| Enable / disable an object | No `active` field — controlled by the prefab |
+| Change layer or tag | Not serialized — defined on the prefab |
+| Reorder siblings | No sibling-index field — order is not guaranteed |
+| Add a built-in component | Built-in components (Collider, Rigidbody, etc.) come from the prefab only |
 
 ### Step 3 — Execute in dependency order
 
