@@ -5,7 +5,7 @@ A live-sync, text-based scene format for Unity. Replaces binary `.unity` scene s
 - **AI-friendly** — each entity is its own file; LLMs can read, create, and edit scenes directly
 - **Git-friendly** — per-object diffs instead of monolithic binary blobs
 - **Live sync** — changes on disk hot-reload instantly into the Editor, and Editor changes write back to disk automatically
-- **No "Save Scene"** — the file system is always the source of truth
+- **No "Save Scene"** — JSON files and the Unity scene are always perfect mirrors of each other; changes sync in both directions automatically
 
 **Minimum Unity version:** Unity 6 (6000.x)
 
@@ -124,6 +124,6 @@ On **Enter Play Mode** all managed entities (flagged `DontSave`) are destroyed. 
 ## Known Limitations
 
 - **Undo/Redo** — expected to work via `ObjectChangeEvents`, but unverified in practice. Test early and file an issue if Undo doesn't write back to disk correctly.
-- **macOS FileSystemWatcher** — occasionally misses events. Use `JSON Scenes → Force Reload Scene` as a recovery tool.
+- **macOS FileSystemWatcher** — the custom watcher that detects JSON file changes (not Unity's own script hot-reload) can occasionally miss events on macOS. Use `JSON Scenes → Force Reload Scene` as a recovery tool if a JSON edit doesn't appear to have applied.
 - **Same-type multi-component reordering** — if two components of the same type on one object are reordered via the Inspector, `customData` indices will map incorrectly on the next load.
 - **Built-in components** — only custom `MonoBehaviour` fields are serialized. Built-in components (Collider, Rigidbody, etc.) derive their state from the source prefab.

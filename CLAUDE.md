@@ -1,8 +1,10 @@
 # JSON Scenes for Unity — Claude Code Guide
 
 This package implements a **bidirectional sync** between JSON files on disk and a Unity scene.
-JSON files are the source of truth. Unity hot-reloads any file change within ~300ms via FileSystemWatcher.
+Both representations are always kept in perfect sync — changes can originate from either side.
+Unity hot-reloads any JSON file change within ~300ms via FileSystemWatcher.
 Any change made in the Unity Editor is automatically written back to the corresponding JSON file.
+On conflict (simultaneous edits to both sides), the JSON file wins.
 
 ---
 
