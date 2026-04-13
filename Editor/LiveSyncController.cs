@@ -405,24 +405,26 @@ namespace JsonScenesForUnity.Editor
         {
             if (SuppressWriteEvents) return;
 
-            // Object is being destroyed — find its EntitySync before it's gone
-            // (instanceId may still resolve briefly)
+            // Object is being destroyed — find it before it's gone
+            // (instanceId may still resolve briefly during the change event)
             var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
             if (go == null) return;
-
-            var sync = go.GetComponent<EntitySync>();
-            if (sync == null || string.IsNullOrEmpty(sync.uuid)) return;
 
             var manager = SceneDataManager.Instance;
             if (manager == null) return;
 
             string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
-            string filePath = Path.Combine(entitiesDir, sync.uuid + ".json");
 
-            if (File.Exists(filePath))
-                File.Delete(filePath);
-
-            manager.Unregister(sync.uuid);
+            // Walk the entire hierarchy (root + all descendants) so that deleting a
+            // parent also removes every child's JSON file — not just the root's.
+            foreach (var sync in go.GetComponentsInChildren<EntitySync>(includeInactive: true))
+            {
+                if (string.IsNullOrEmpty(sync.uuid)) continue;
+                string filePath = Path.Combine(entitiesDir, sync.uuid + ".json");
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+                manager.Unregister(sync.uuid);
+            }
         }
 
         private static void FlushWriteQueue()
