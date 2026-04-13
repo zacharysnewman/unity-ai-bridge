@@ -490,43 +490,32 @@ namespace JsonScenesForUnity.Editor
         }
 
         /// <summary>
-        /// Creates a SceneDataManager GameObject in the active scene if one doesn't already exist.
-        /// Set the Scene Data Path on the component in the Inspector, then run Initialize Scene.
-        /// </summary>
-        [MenuItem("JSON Scenes/Create SceneDataManager")]
-        public static void CreateSceneDataManager()
-        {
-            if (SceneDataManager.Instance != null)
-            {
-                Debug.LogWarning("[JsonScenes] A SceneDataManager already exists in the active scene.");
-                return;
-            }
-            var go = new GameObject("SceneDataManager");
-            go.AddComponent<SceneDataManager>();
-            Undo.RegisterCreatedObjectUndo(go, "Create SceneDataManager");
-            Selection.activeGameObject = go;
-            EditorSceneManager.MarkSceneDirty(go.scene);
-        }
-
-        /// <summary>
-        /// Initializes the scene for JSON sync: creates the directory structure and
-        /// manifest if missing, then migrates all unmanaged objects into sync.
+        /// Fully initializes the scene for JSON sync in one step:
+        /// creates the SceneDataManager if absent, defaults the sceneDataPath to
+        /// Assets/SceneData/<SceneName> if unset, creates the directory structure
+        /// and manifest if missing, then migrates all unmanaged objects into sync.
         /// Idempotent — safe to run on an already-initialized scene.
         /// </summary>
         [MenuItem("JSON Scenes/Initialize Scene")]
         public static void InitializeScene()
         {
             var manager = SceneDataManager.Instance;
+
             if (manager == null)
             {
-                Debug.LogWarning("[JsonScenes] No SceneDataManager found in the active scene.");
-                return;
+                var go = new GameObject("SceneDataManager");
+                manager = go.AddComponent<SceneDataManager>();
+                Undo.RegisterCreatedObjectUndo(go, "Create SceneDataManager");
             }
+
             if (string.IsNullOrEmpty(manager.sceneDataPath))
             {
-                Debug.LogWarning("[JsonScenes] Scene Data Path is not set on the SceneDataManager.");
-                return;
+                string sceneName = manager.gameObject.scene.name;
+                if (string.IsNullOrEmpty(sceneName)) sceneName = "Scene";
+                manager.sceneDataPath = $"Assets/SceneData/{sceneName}";
+                EditorUtility.SetDirty(manager);
             }
+
             SceneIO.InitializeScene(manager);
         }
 
