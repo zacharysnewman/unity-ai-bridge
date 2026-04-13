@@ -101,6 +101,17 @@ namespace JsonScenesForUnity.Editor
         {
             GUILayout.Label("Actions", EditorStyles.boldLabel);
 
+            var manager = SceneDataManager.Instance;
+            bool ready = manager != null
+                && !string.IsNullOrEmpty(manager.sceneDataPath)
+                && Directory.Exists(manager.sceneDataPath)
+                && File.Exists(Path.Combine(manager.sceneDataPath, "manifest.json"));
+
+            EditorGUI.BeginDisabledGroup(!ready);
+
+            if (GUILayout.Button("Migrate Scene to JSON"))
+                LiveSyncController.MigrateSceneToJson();
+
             EditorGUILayout.BeginHorizontal();
 
             if (GUILayout.Button("Force Reload Scene"))
@@ -110,6 +121,8 @@ namespace JsonScenesForUnity.Editor
                 LiveSyncController.ValidateSceneMenu();
 
             EditorGUILayout.EndHorizontal();
+
+            EditorGUI.EndDisabledGroup();
         }
 
         // ─── Helpers ──────────────────────────────────────────────────────────────

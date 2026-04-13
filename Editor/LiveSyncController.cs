@@ -490,6 +490,23 @@ namespace JsonScenesForUnity.Editor
         }
 
         /// <summary>
+        /// Migrates all existing scene objects into JSON sync management.
+        /// Assigns EntitySync + UUID to unmanaged objects and writes their JSON files.
+        /// Idempotent — safe to run on an already-migrated scene.
+        /// </summary>
+        [MenuItem("JSON Scenes/Migrate Scene to JSON")]
+        public static void MigrateSceneToJson()
+        {
+            var manager = SceneDataManager.Instance;
+            if (manager == null)
+            {
+                Debug.LogWarning("[JsonScenes] No SceneDataManager found in the active scene.");
+                return;
+            }
+            SceneIO.MigrateScene(manager);
+        }
+
+        /// <summary>
         /// Manually triggers a full scene reload. Can be called from menu items or tests.
         /// </summary>
         [MenuItem("JSON Scenes/Force Reload Scene")]

@@ -535,6 +535,80 @@ namespace JsonScenesForUnity.Editor
             return count;
         }
 
+        // ─── Scene migration ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Migrates all GameObjects in the active scene into JSON sync management.
+        ///
+        /// Pass 1 — assigns EntitySync + UUID to every unmanaged object (skips the
+        ///           SceneDataManager itself and objects that already have EntitySync).
+        /// Pass 2 — writes a JSON file for every managed object. WriteEntity's diff-guard
+        ///           makes this a no-op for files whose content hasn't changed.
+        ///
+        /// Idempotent: running twice leaves the scene and JSON files unchanged.
+        /// </summary>
+        public static void MigrateScene(SceneDataManager manager)
+        {
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
+
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            if (!Directory.Exists(entitiesDir))
+            {
+                Debug.LogError($"[JsonScenes] Entities directory not found: {entitiesDir}. Run Setup first.");
+                return;
+            }
+
+            // Collect every GameObject in this scene (including inactive).
+            // Traverse from roots so parents always precede children in the list.
+            var allObjects = new List<GameObject>();
+            foreach (var root in manager.gameObject.scene.GetRootGameObjects())
+                CollectHierarchy(root, allObjects);
+
+            // Pass 1 — assign EntitySync + UUID to unmanaged objects.
+            // SuppressWriteEvents prevents ObjectChangeEvents from writing
+            // individual JSON files while we're adding components in bulk.
+            LiveSyncController.SuppressWriteEvents = true;
+            int newCount = 0;
+            foreach (var go in allObjects)
+            {
+                if (go.GetComponent<SceneDataManager>() != null) continue;
+                if (go.GetComponent<EntitySync>() != null) continue;
+
+                var sync = go.AddComponent<EntitySync>();
+                sync.uuid = Guid.NewGuid().ToString();
+                manager.Register(sync.uuid, go);
+                newCount++;
+            }
+            LiveSyncController.SuppressWriteEvents = false;
+
+            // Pass 2 — write JSON for all managed objects (new and pre-existing).
+            // Pre-existing EntitySync objects may not be in the registry yet — register them.
+            // WriteEntity's diff-guard skips unchanged files on repeat runs.
+            int writtenCount = 0;
+            foreach (var go in allObjects)
+            {
+                var sync = go.GetComponent<EntitySync>();
+                if (sync == null || string.IsNullOrEmpty(sync.uuid)) continue;
+                if (go.GetComponent<SceneDataManager>() != null) continue;
+
+                if (manager.GetByUUID(sync.uuid) == null)
+                    manager.Register(sync.uuid, go);
+
+                WriteEntity(go, entitiesDir);
+                writtenCount++;
+            }
+
+            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+            Debug.Log($"[JsonScenes] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written.");
+        }
+
+        private static void CollectHierarchy(GameObject go, List<GameObject> result)
+        {
+            result.Add(go);
+            foreach (Transform child in go.transform)
+                CollectHierarchy(child.gameObject, result);
+        }
+
         // ─── Orphan pruning ───────────────────────────────────────────────────────
 
         /// <summary>
