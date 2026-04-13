@@ -490,6 +490,25 @@ namespace JsonScenesForUnity.Editor
         }
 
         /// <summary>
+        /// Creates a SceneDataManager GameObject in the active scene if one doesn't already exist.
+        /// Set the Scene Data Path on the component in the Inspector, then run Initialize Scene.
+        /// </summary>
+        [MenuItem("JSON Scenes/Create SceneDataManager")]
+        public static void CreateSceneDataManager()
+        {
+            if (SceneDataManager.Instance != null)
+            {
+                Debug.LogWarning("[JsonScenes] A SceneDataManager already exists in the active scene.");
+                return;
+            }
+            var go = new GameObject("SceneDataManager");
+            go.AddComponent<SceneDataManager>();
+            Undo.RegisterCreatedObjectUndo(go, "Create SceneDataManager");
+            Selection.activeGameObject = go;
+            EditorSceneManager.MarkSceneDirty(go.scene);
+        }
+
+        /// <summary>
         /// Initializes the scene for JSON sync: creates the directory structure and
         /// manifest if missing, then migrates all unmanaged objects into sync.
         /// Idempotent — safe to run on an already-initialized scene.
