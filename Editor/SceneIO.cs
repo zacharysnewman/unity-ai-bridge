@@ -535,6 +535,41 @@ namespace JsonScenesForUnity.Editor
             return count;
         }
 
+        // ─── Scene initialization ─────────────────────────────────────────────────
+
+        /// <summary>
+        /// Idempotent full initialization: ensures the directory structure and manifest
+        /// exist, then migrates all unmanaged scene objects into JSON sync.
+        /// Safe to run on an already-initialized scene — nothing is overwritten or duplicated.
+        /// </summary>
+        public static void InitializeScene(SceneDataManager manager)
+        {
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
+
+            // Create directories if missing — Directory.CreateDirectory is a no-op if they exist.
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            string commandsDir = Path.Combine(manager.sceneDataPath, "Commands");
+            Directory.CreateDirectory(entitiesDir);
+            Directory.CreateDirectory(commandsDir);
+
+            // Create manifest only if missing — never overwrite (schemaVersion must not change).
+            string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
+            if (!File.Exists(manifestPath))
+            {
+                string sceneName = Path.GetFileName(manager.sceneDataPath.TrimEnd('/', '\\'));
+                File.WriteAllText(manifestPath,
+                    "{\n" +
+                    "  \"schemaVersion\": 1,\n" +
+                    $"  \"sceneName\": \"{sceneName}\"\n" +
+                    "}\n");
+            }
+
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+
+            // Migrate all unmanaged scene objects into JSON sync.
+            MigrateScene(manager);
+        }
+
         // ─── Scene migration ──────────────────────────────────────────────────────
 
         /// <summary>

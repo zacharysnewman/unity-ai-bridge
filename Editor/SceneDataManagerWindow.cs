@@ -60,38 +60,16 @@ namespace JsonScenesForUnity.Editor
                 EditorUtility.SetDirty(manager);
             }
 
-            bool pathExists = !string.IsNullOrEmpty(manager.sceneDataPath)
-                && Directory.Exists(manager.sceneDataPath);
-
-            bool manifestExists = pathExists
-                && File.Exists(Path.Combine(manager.sceneDataPath, "manifest.json"));
-
             if (!string.IsNullOrEmpty(manager.sceneDataPath))
             {
-                if (!pathExists)
-                {
-                    EditorGUILayout.HelpBox(
-                        $"Directory not found: {manager.sceneDataPath}\nCreate the folder structure or fix the path.",
-                        MessageType.Error);
+                bool initialized = Directory.Exists(manager.sceneDataPath)
+                    && File.Exists(Path.Combine(manager.sceneDataPath, "manifest.json"));
 
-                    if (GUILayout.Button("Create Directory Structure"))
-                        CreateDirectoryStructure(manager.sceneDataPath);
-                }
-                else if (!manifestExists)
-                {
-                    EditorGUILayout.HelpBox(
-                        "Directory exists but manifest.json is missing.",
-                        MessageType.Warning);
-
-                    if (GUILayout.Button("Create manifest.json"))
-                        CreateManifest(manager.sceneDataPath);
-                }
-                else
-                {
-                    EditorGUILayout.HelpBox(
-                        $"Scene data directory ready.\n{manager.sceneDataPath}",
-                        MessageType.Info);
-                }
+                EditorGUILayout.HelpBox(
+                    initialized
+                        ? $"Ready — {manager.sceneDataPath}"
+                        : "Path set. Click Initialize Scene to create the directory structure and sync existing objects.",
+                    initialized ? MessageType.Info : MessageType.Warning);
             }
         }
 
@@ -102,15 +80,19 @@ namespace JsonScenesForUnity.Editor
             GUILayout.Label("Actions", EditorStyles.boldLabel);
 
             var manager = SceneDataManager.Instance;
-            bool ready = manager != null
-                && !string.IsNullOrEmpty(manager.sceneDataPath)
+            bool hasPath = manager != null && !string.IsNullOrEmpty(manager.sceneDataPath);
+            bool initialized = hasPath
                 && Directory.Exists(manager.sceneDataPath)
                 && File.Exists(Path.Combine(manager.sceneDataPath, "manifest.json"));
 
-            EditorGUI.BeginDisabledGroup(!ready);
+            EditorGUI.BeginDisabledGroup(!hasPath);
 
-            if (GUILayout.Button("Migrate Scene to JSON"))
-                LiveSyncController.MigrateSceneToJson();
+            if (GUILayout.Button("Initialize Scene"))
+                LiveSyncController.InitializeScene();
+
+            EditorGUI.EndDisabledGroup();
+
+            EditorGUI.BeginDisabledGroup(!initialized);
 
             EditorGUILayout.BeginHorizontal();
 
@@ -135,26 +117,5 @@ namespace JsonScenesForUnity.Editor
             Selection.activeGameObject = go;
         }
 
-        private static void CreateDirectoryStructure(string sceneDataPath)
-        {
-            Directory.CreateDirectory(Path.Combine(sceneDataPath, "Entities"));
-            Directory.CreateDirectory(Path.Combine(sceneDataPath, "Commands"));
-            CreateManifest(sceneDataPath);
-            AssetDatabase.Refresh();
-            Debug.Log($"[JsonScenes] Created directory structure at {sceneDataPath}");
-        }
-
-        private static void CreateManifest(string sceneDataPath)
-        {
-            string manifestPath = Path.Combine(sceneDataPath, "manifest.json");
-            string sceneName = Path.GetFileName(sceneDataPath.TrimEnd('/', '\\'));
-            File.WriteAllText(manifestPath,
-                "{\n" +
-                "  \"schemaVersion\": 1,\n" +
-                $"  \"sceneName\": \"{sceneName}\"\n" +
-                "}\n");
-            AssetDatabase.Refresh();
-            Debug.Log($"[JsonScenes] Created manifest.json at {manifestPath}");
-        }
     }
 }
