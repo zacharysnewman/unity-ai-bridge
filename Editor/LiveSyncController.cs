@@ -45,11 +45,13 @@ namespace JsonScenesForUnity.Editor
         internal static bool SuppressWriteEvents = false;
 
         // ─── Static constructor (InitializeOnLoad) ────────────────────────────────
-
         static LiveSyncController()
         {
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+
+            // --- THE GUARD: If Unity is transitioning to Play, don't bootstrap here! ---
+            if (EditorApplication.isPlayingOrWillChangePlaymode) return;
 
             // Stop watcher cleanly before assembly reload; restart after
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;

@@ -41,50 +41,135 @@ namespace JsonScenesForUnity.Editor
         /// Full async bootstrap: reads manifest, instantiates all entities, wires hierarchy,
         /// applies transforms and customData. Displays a Unity progress bar.
         /// </summary>
+        private static bool _isBootstrapping = false;
+
+        /// <summary>
+        /// Full async bootstrap: reads manifest, instantiates all entities, wires hierarchy,
+        /// applies transforms and customData. Displays a Unity progress bar.
+        /// </summary>
         public static IEnumerator BootstrapScene(SceneDataManager manager)
         {
-            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath))
-                yield break;
+            // 1. THE GUARD: Prevent multiple bootstraps from running at the same time
+            if (_isBootstrapping) yield break;
+            _isBootstrapping = true;
 
-            string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
-            if (!File.Exists(manifestPath))
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath))
             {
-                Debug.LogError($"[JsonScenes] manifest.json not found at {manifestPath}");
+                _isBootstrapping = false;
                 yield break;
             }
 
-            // 1. Validate manifest schema version
-            JObject manifest;
+            // 2. THE TRY-FINALLY: Ensures the progress bar and guard are ALWAYS 
+            // cleaned up, even if the code crashes or hits an error.
             try
             {
-                manifest = JObject.Parse(File.ReadAllText(manifestPath));
+                // 3. THE CLEANUP: Wipe "DontSave" puppets before spawning
+                ClearExistingEntities(manager);
+
+                string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
+                if (!File.Exists(manifestPath))
+                {
+                    Debug.LogError($"[JsonScenes] manifest.json not found at {manifestPath}");
+                    yield break;
+                }
+
+                JObject manifest = JObject.Parse(File.ReadAllText(manifestPath));
+                int schemaVersion = manifest.Value<int>("schemaVersion");
+                if (schemaVersion != ExpectedSchemaVersion)
+                {
+                    Debug.LogError($"[JsonScenes] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
+                    yield break;
+                }
+
+                string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+                if (!Directory.Exists(entitiesDir))
+                {
+                    Debug.LogWarning($"[JsonScenes] Entities directory not found: {entitiesDir}");
+                    yield break;
+                }
+
+                string[] entityFiles = Directory.GetFiles(entitiesDir, "*.json");
+                var entityData = new List<(string uuid, JObject data, GameObject go)>();
+
+                // PASS 1 – Instantiate
+                EditorUtility.DisplayProgressBar("JSON Scenes", "Instantiating entities…", 0f);
+                for (int i = 0; i < entityFiles.Length; i++)
+                {
+                    string path = entityFiles[i];
+                    EditorUtility.DisplayProgressBar("JSON Scenes", $"Instantiating {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
+
+                    bool parseSuccess = false;
+                    JObject data = null;
+                    try
+                    {
+                        data = JObject.Parse(File.ReadAllText(path));
+                        parseSuccess = true;
+                    }
+                    catch
+                    {
+                        Debug.LogWarning($"[JsonScenes] Failed to parse {path}. Skipping.");
+                    }
+
+                    if (!parseSuccess)
+                    {
+                        yield return null;
+                        continue;
+                    }
+
+                    string uuid = data.Value<string>("uuid");
+                    if (string.IsNullOrEmpty(uuid)) { yield return null; continue; }
+
+                    string prefabPath = data.Value<string>("prefabPath");
+                    GameObject go = InstantiateEntity(uuid, prefabPath, data.Value<string>("name"));
+
+                    if (go != null)
+                    {
+                        manager.Register(uuid, go);
+                        entityData.Add((uuid, data, go));
+                    }
+                    yield return null;
+                }
+
+                // PASS 2 – Wire Hierarchy
+                EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring hierarchy…", 0.33f);
+                for (int i = 0; i < entityData.Count; i++)
+                {
+                    var (uuid, data, go) = entityData[i];
+                    string parentUuid = data.Value<string>("parentUuid");
+                    if (!string.IsNullOrEmpty(parentUuid))
+                    {
+                        GameObject parentGo = manager.GetByUUID(parentUuid);
+                        if (parentGo != null) go.transform.SetParent(parentGo.transform, false);
+                    }
+                    EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
+                }
+
+                // PASS 3 – Apply Transforms & Data
+                EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…", 0.66f);
+                for (int i = 0; i < entityData.Count; i++)
+                {
+                    var (uuid, data, go) = entityData[i];
+                    ApplyTransform(go, data["transform"] as JObject);
+                    ApplyCustomData(go, data["customData"] as JArray);
+                    EditorUtility.DisplayProgressBar("JSON Scenes", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
+                }
+
+                // Mark scene dirty so Unity saves the newly instantiated persistent entities.
+                EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+                Debug.Log($"[JsonScenes] Bootstrap complete — {entityData.Count} entities loaded.");
             }
-            catch (Exception e)
+            finally
             {
-                Debug.LogError($"[JsonScenes] Failed to parse manifest.json: {e.Message}");
-                yield break;
+                // 4. THE RESET: Always clear the UI and the lock
+                EditorUtility.ClearProgressBar();
+                _isBootstrapping = false;
             }
+        }
 
-            int schemaVersion = manifest.Value<int>("schemaVersion");
-            if (schemaVersion != ExpectedSchemaVersion)
-            {
-                Debug.LogError(
-                    $"[JsonScenes] Schema version mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}. " +
-                    "Loading aborted. Update the package or migrate your scene data.");
-                yield break;
-            }
-
-            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
-            if (!Directory.Exists(entitiesDir))
-            {
-                Debug.LogWarning($"[JsonScenes] Entities directory not found: {entitiesDir}");
-                yield break;
-            }
-
-            string[] entityFiles = Directory.GetFiles(entitiesDir, "*.json");
-
-            // Destroy any existing entity GameObjects before re-instantiating (full reload).
-            // SuppressWriteEvents prevents HandleDestroyEvent from deleting the JSON files.
+        private static void ClearExistingEntities(SceneDataManager manager)
+        {
+            // SuppressWriteEvents prevents HandleDestroyEvent from deleting the JSON files
+            // while we tear down the existing scene objects.
             LiveSyncController.SuppressWriteEvents = true;
             var existingEntities = UnityEngine.Object.FindObjectsByType<EntitySync>(
                 FindObjectsInactive.Include, FindObjectsSortMode.None);
@@ -93,90 +178,6 @@ namespace JsonScenesForUnity.Editor
             LiveSyncController.SuppressWriteEvents = false;
 
             manager.ClearRegistry();
-
-            // Pass 1 – instantiate
-            EditorUtility.DisplayProgressBar("JSON Scenes", "Instantiating entities…", 0f);
-            var entityData = new List<(string uuid, JObject data, GameObject go)>();
-
-            for (int i = 0; i < entityFiles.Length; i++)
-            {
-                string path = entityFiles[i];
-                EditorUtility.DisplayProgressBar("JSON Scenes", $"Instantiating {Path.GetFileName(path)}",
-                    (float)i / entityFiles.Length * 0.33f);
-
-                var parseSuccess = false;
-                JObject data = null;
-                try
-                {
-                    data = JObject.Parse(File.ReadAllText(path));
-                    parseSuccess = true;
-                }
-                catch (Exception e)
-                {
-                    Debug.LogWarning($"[JsonScenes] Skipping {path} — parse error: {e.Message}");
-                }
-
-                if (!parseSuccess)
-                {
-                    yield return null;
-                    continue;
-                }
-
-                string uuid = data.Value<string>("uuid");
-                if (string.IsNullOrEmpty(uuid))
-                {
-                    Debug.LogWarning($"[JsonScenes] Skipping {path} — missing uuid field.");
-                    yield return null;
-                    continue;
-                }
-
-                string prefabPath = data.Value<string>("prefabPath");
-                GameObject go = InstantiateEntity(uuid, prefabPath, data.Value<string>("name"));
-                if (go == null)
-                {
-                    yield return null;
-                    continue;
-                }
-
-                manager.Register(uuid, go);
-                entityData.Add((uuid, data, go));
-                yield return null;
-            }
-
-            // Pass 2 – wire hierarchy
-            EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring hierarchy…", 0.33f);
-            for (int i = 0; i < entityData.Count; i++)
-            {
-                var (uuid, data, go) = entityData[i];
-                string parentUuid = data.Value<string>("parentUuid");
-                if (!string.IsNullOrEmpty(parentUuid))
-                {
-                    GameObject parentGo = manager.GetByUUID(parentUuid);
-                    if (parentGo != null)
-                        go.transform.SetParent(parentGo.transform, false);
-                    else
-                        Debug.LogWarning($"[JsonScenes] Entity {uuid}: parentUuid {parentUuid} not found.");
-                }
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring hierarchy…",
-                    0.33f + (float)i / entityData.Count * 0.33f);
-            }
-
-            // Pass 3 – apply transforms and customData
-            EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…", 0.66f);
-            for (int i = 0; i < entityData.Count; i++)
-            {
-                var (uuid, data, go) = entityData[i];
-                ApplyTransform(go, data["transform"] as JObject);
-                ApplyCustomData(go, data["customData"] as JArray);
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…",
-                    0.66f + (float)i / entityData.Count * 0.34f);
-            }
-
-            EditorUtility.ClearProgressBar();
-
-            // Mark scene dirty so Unity saves the newly instantiated persistent entities.
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-            Debug.Log($"[JsonScenes] Bootstrap complete — {entityData.Count} entities loaded.");
         }
 
         // ─── Instantiation ────────────────────────────────────────────────────────
@@ -315,14 +316,17 @@ namespace JsonScenesForUnity.Editor
             var sync = go.GetComponent<EntitySync>();
             if (sync == null || string.IsNullOrEmpty(sync.uuid)) return;
 
+            if (!Directory.Exists(entitiesDir))
+            {
+                Directory.CreateDirectory(entitiesDir);
+            }
+
             string filePath = Path.Combine(entitiesDir, sync.uuid + ".json");
             string json = SerializeEntity(go, sync.uuid);
 
-            // Diff-guard: skip write if content unchanged
             if (File.Exists(filePath))
             {
-                string existing = File.ReadAllText(filePath);
-                if (existing == json)
+                if (File.ReadAllText(filePath) == json)
                 {
                     sync.isDirty = false;
                     return;
@@ -331,6 +335,22 @@ namespace JsonScenesForUnity.Editor
 
             File.WriteAllText(filePath, json);
             sync.isDirty = false;
+
+            // --- THE FIX: Force Unity to see the new/updated file ---
+            // We use ImportAsset because it's faster than a full Refresh() 
+            // when we know exactly which file changed.
+            string relativePath = GetRelativePath(filePath);
+            AssetDatabase.ImportAsset(relativePath, ImportAssetOptions.ForceUpdate);
+        }
+
+        // Helper to convert an absolute path back to a Unity "Assets/..." path
+        private static string GetRelativePath(string absolutePath)
+        {
+            if (absolutePath.StartsWith(Application.dataPath))
+            {
+                return "Assets" + absolutePath.Substring(Application.dataPath.Length);
+            }
+            return absolutePath;
         }
 
         public static string SerializeEntity(GameObject go, string uuid)

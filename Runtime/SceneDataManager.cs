@@ -16,20 +16,32 @@ namespace JsonScenesForUnity
         [Tooltip("Project-relative path to the scene data directory, e.g. Assets/SceneData/Level_01")]
         public string sceneDataPath;
 
+        private readonly Dictionary<string, GameObject> _uuidToGameObject = new Dictionary<string, GameObject>();
+
         private static SceneDataManager _instance;
 
         /// <summary>
         /// Returns the SceneDataManager for the active scene.
-        /// For multi-scene setups, iterate SceneDataManager.FindObjectsOfType instead.
+        /// Searches the scene if the static reference is null (useful for Editor tools).
         /// </summary>
-        public static SceneDataManager Instance => _instance;
-
-        private readonly Dictionary<string, GameObject> _uuidToGameObject = new Dictionary<string, GameObject>();
+        public static SceneDataManager Instance
+        {
+            get
+            {
+                // If we don't have a reference, try to find one in the current scene
+                if (_instance == null)
+                {
+                    _instance = Object.FindAnyObjectByType<SceneDataManager>();
+                }
+                return _instance;
+            }
+        }
 
         // OnEnable fires on domain reload (with [ExecuteAlways]), Play Mode entry, and scene load.
         // This ensures _instance is valid after script recompiles without needing Awake.
         private void OnEnable()
         {
+            // Ensure the static instance is set when entering Play Mode
             _instance = this;
         }
 
