@@ -3,19 +3,20 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
+using JsonScenesForUnity;
 
 namespace JsonScenesForUnity.Editor
 {
     /// <summary>
-    /// Fires inside Unity whenever files in the project change (via Unity's asset pipeline).
-    /// Handles UUID injection for human-created entity files that arrive without a valid UUID.
+    /// Primary sync bridge between the Unity asset pipeline and the scene.
+    /// Fires whenever files in Assets/ change (create, modify, delete, move).
     ///
-    /// UUID injection rule: filename must always equal the uuid field value.
-    ///   - Missing/empty uuid  → generate new UUID, write it into the file, rename to [uuid].json
-    ///   - uuid field ≠ filename → treat as a duplicate (Ctrl+D copy). Generate new UUID, update field, rename.
-    ///
-    /// AI tools write entity files directly with a pre-generated UUID.
-    /// This postprocessor acts as a safety net for any file arriving without a valid UUID.
+    /// Responsibilities:
+    ///   - UUID injection: ensures every entity file's uuid field matches its filename.
+    ///       Missing/empty uuid  → generate new UUID, write it, rename file to [uuid].json
+    ///       uuid ≠ filename     → treat as duplicate (Ctrl+D). Generate new UUID, rename.
+    ///   - Hot reload: spawns or updates the scene object when an entity file is created/modified.
+    ///   - Destroy: removes the scene object when an entity file is deleted.
     /// </summary>
     public class EntityAssetPostprocessor : AssetPostprocessor
     {
@@ -25,10 +26,37 @@ namespace JsonScenesForUnity.Editor
             string[] movedAssets,
             string[] movedFromAssetPaths)
         {
+            var manager = SceneDataManager.Instance;
+
             foreach (string assetPath in importedAssets)
             {
                 if (!IsEntityFile(assetPath)) continue;
-                ProcessEntityFile(assetPath);
+
+                Debug.Log($"[JsonScenes] Postprocessor: imported entity file — {assetPath} | manager={(manager != null ? manager.sceneDataPath : "NULL")}");
+
+                bool valid = EnsureValidUuid(assetPath);
+                if (!valid)
+                {
+                    Debug.Log($"[JsonScenes] Postprocessor: UUID fixed/renamed, skipping hot reload for this pass — {assetPath}");
+                    continue;
+                }
+
+                if (manager == null)
+                {
+                    Debug.LogWarning($"[JsonScenes] Postprocessor: no SceneDataManager found — cannot hot reload {assetPath}");
+                    continue;
+                }
+
+                SceneIO.HotReloadEntity(Path.GetFullPath(assetPath), manager);
+            }
+
+            foreach (string assetPath in deletedAssets)
+            {
+                if (!IsEntityFile(assetPath)) continue;
+                string uuid = Path.GetFileNameWithoutExtension(assetPath);
+                Debug.Log($"[JsonScenes] Postprocessor: deleted entity file — uuid={uuid} | manager={(manager != null ? "found" : "NULL")}");
+                if (manager != null)
+                    SceneIO.DestroyEntity(uuid, manager);
             }
         }
 
@@ -37,14 +65,19 @@ namespace JsonScenesForUnity.Editor
             if (!assetPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // Must be inside an Entities/ directory within a SceneData folder
             return assetPath.Contains("/Entities/") || assetPath.Contains("\\Entities\\");
         }
 
-        private static void ProcessEntityFile(string assetPath)
+        /// <summary>
+        /// Ensures the entity file has a UUID that matches its filename.
+        /// Returns true if the file was already valid (no rename needed).
+        /// Returns false if the file was renamed — caller should skip hot reload
+        /// since the renamed file will trigger a fresh import.
+        /// </summary>
+        private static bool EnsureValidUuid(string assetPath)
         {
             string fullPath = Path.GetFullPath(assetPath);
-            if (!File.Exists(fullPath)) return;
+            if (!File.Exists(fullPath)) return false;
 
             JObject data;
             try
@@ -54,7 +87,7 @@ namespace JsonScenesForUnity.Editor
             catch (Exception e)
             {
                 Debug.LogWarning($"[JsonScenes] EntityAssetPostprocessor: Failed to parse {assetPath}: {e.Message}");
-                return;
+                return false;
             }
 
             string existingUuid = data.Value<string>("uuid");
@@ -64,15 +97,12 @@ namespace JsonScenesForUnity.Editor
             bool uuidMismatch = !missingUuid && !string.Equals(existingUuid, fileUuid, StringComparison.OrdinalIgnoreCase);
 
             if (!missingUuid && !uuidMismatch)
-                return; // File is valid — uuid matches filename
+                return true; // Already valid
 
-            // Generate a new UUID (missing or duplicate/mismatch → new identity)
             string newUuid = Guid.NewGuid().ToString();
-
             data["uuid"] = newUuid;
             File.WriteAllText(fullPath, data.ToString(Newtonsoft.Json.Formatting.Indented));
 
-            // Rename asset to [newUuid].json
             string directory = Path.GetDirectoryName(assetPath);
             string newAssetPath = directory.Replace('\\', '/') + "/" + newUuid + ".json";
 
@@ -80,18 +110,14 @@ namespace JsonScenesForUnity.Editor
             {
                 string moveError = AssetDatabase.MoveAsset(assetPath, newAssetPath);
                 if (!string.IsNullOrEmpty(moveError))
-                {
-                    Debug.LogWarning(
-                        $"[JsonScenes] EntityAssetPostprocessor: Failed to rename {assetPath} → {newAssetPath}: {moveError}");
-                }
+                    Debug.LogWarning($"[JsonScenes] EntityAssetPostprocessor: Failed to rename {assetPath} → {newAssetPath}: {moveError}");
+                else if (missingUuid)
+                    Debug.Log($"[JsonScenes] Assigned UUID {newUuid} to {assetPath}");
                 else
-                {
-                    if (missingUuid)
-                        Debug.Log($"[JsonScenes] Assigned UUID {newUuid} to {assetPath}");
-                    else
-                        Debug.Log($"[JsonScenes] Duplicate detected — assigned new UUID {newUuid} (was {existingUuid})");
-                }
+                    Debug.Log($"[JsonScenes] Duplicate detected — assigned new UUID {newUuid} (was {existingUuid})");
             }
+
+            return false; // Renamed — fresh import will handle hot reload
         }
     }
 }

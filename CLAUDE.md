@@ -60,7 +60,8 @@ Or read individual entity files to understand their current state before editing
 | Reparent an object | Edit `parentUuid` to the new parent's UUID |
 | Detach from parent (make root-level) | Set `parentUuid` to `null` |
 | Change a component value | Edit the relevant field inside `customData` |
-| Initialize data for a component on the prefab | Add a new entry to `customData` with the correct `type` and field values |
+| Add a component to an object | Add a new entry to `customData` with the correct `type` and field values |
+| Remove a component from an object | Delete the corresponding entry from the `customData` array — the `customData` array is treated as the complete truth; any MonoBehaviour absent from it will be destroyed on the GameObject |
 | Delete an object | Delete `Entities/<uuid>.json` — child entities are removed automatically |
 | Duplicate an object | Create a new file with a fresh UUID; copy all other fields |
 | Change which prefab an object uses | Edit `prefabPath` — Unity will destroy and reinstantiate the object |
@@ -171,6 +172,7 @@ Only custom `MonoBehaviour` components are serialized. Built-in Unity components
 - `type` is the fully-qualified C# class name (e.g. `"MyGame.Environment.DoorScript"`, not `"DoorScript"`)
 - All `public` fields and `[SerializeField]` private fields are included
 - Multiple components of the same type are supported — Nth entry maps to Nth component instance
+- **The array is treated as the complete truth.** Any custom MonoBehaviour present on the GameObject but absent from `customData` will be destroyed when the entity is synced. To remove a component, delete its entry from the array. To add one, append a new entry.
 
 ---
 
@@ -250,6 +252,45 @@ To enable inline schema validation for entity and manifest files, add this to yo
   ]
 }
 ```
+
+---
+
+## Editing JSON Safely
+
+### Always anchor edits to the field name
+
+Entity files contain multiple `[x, y, z]` arrays (`pos`, `rot`, `scl`) that can have identical values. When editing, always include the field name in the match context — never match bare numeric lines alone.
+
+**Wrong** — matches the first `0.0` triplet it finds (could be `rot` instead of `pos`):
+```
+      0.0,
+      0.0,
+      0.0
+```
+
+**Correct** — anchored to the field name, unambiguous:
+```json
+"pos": [
+      4.0,
+      0.0,
+      0.0
+    ],
+```
+
+### Transform array layout
+
+`pos`, `rot`, and `scl` are always `[x, y, z]`:
+- Index 0 = X
+- Index 1 = Y (up)
+- Index 2 = Z
+
+See `Schemas/entity.schema.json` for the full entity schema, including transform, customData, and UUID format.
+
+---
+
+## Known Limitations
+
+- **Reparenting lag**: When `parentUuid` is changed in JSON, the hierarchy tree only visually rebuilds when the Unity editor has focus. The actual transform parent is updated immediately — clicking into Unity will show the correct state. This is a Unity editor windowing constraint and cannot be resolved via API.
 
 ---
 

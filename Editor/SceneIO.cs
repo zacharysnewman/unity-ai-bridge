@@ -150,7 +150,7 @@ namespace JsonScenesForUnity.Editor
                 {
                     var (uuid, data, go) = entityData[i];
                     ApplyTransform(go, data["transform"] as JObject);
-                    ApplyCustomData(go, data["customData"] as JArray);
+                    ReconcileComponents(go, data["customData"] as JArray);
                     EditorUtility.DisplayProgressBar("JSON Scenes", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
                 }
 
@@ -161,6 +161,131 @@ namespace JsonScenesForUnity.Editor
             finally
             {
                 // 4. THE RESET: Always clear the UI and the lock
+                EditorUtility.ClearProgressBar();
+                _isBootstrapping = false;
+            }
+        }
+
+        /// <summary>
+        /// Non-destructive sync: reads all JSON files and reconciles the scene.
+        /// Existing entities are updated in place; missing entities are spawned;
+        /// scene objects with no backing JSON file are pruned.
+        /// Used on every bootstrap so JSON always wins on load, without destroying
+        /// persistent scene objects unnecessarily.
+        /// </summary>
+        public static IEnumerator ReconcileScene(SceneDataManager manager)
+        {
+            if (_isBootstrapping) yield break;
+            _isBootstrapping = true;
+
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath))
+            {
+                _isBootstrapping = false;
+                yield break;
+            }
+
+            try
+            {
+                string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
+                if (!File.Exists(manifestPath))
+                {
+                    Debug.LogError($"[JsonScenes] manifest.json not found at {manifestPath}");
+                    yield break;
+                }
+
+                JObject manifest = JObject.Parse(File.ReadAllText(manifestPath));
+                int schemaVersion = manifest.Value<int>("schemaVersion");
+                if (schemaVersion != ExpectedSchemaVersion)
+                {
+                    Debug.LogError($"[JsonScenes] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
+                    yield break;
+                }
+
+                string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+                if (!Directory.Exists(entitiesDir)) yield break;
+
+                string[] entityFiles = Directory.GetFiles(entitiesDir, "*.json");
+                var entityData = new List<(string uuid, JObject data, GameObject go)>();
+
+                // PASS 1 – Update existing or spawn missing
+                EditorUtility.DisplayProgressBar("JSON Scenes", "Reconciling entities…", 0f);
+                for (int i = 0; i < entityFiles.Length; i++)
+                {
+                    string path = entityFiles[i];
+                    EditorUtility.DisplayProgressBar("JSON Scenes", $"Reconciling {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
+
+                    JObject data = null;
+                    try { data = JObject.Parse(File.ReadAllText(path)); }
+                    catch { Debug.LogWarning($"[JsonScenes] Failed to parse {path}. Skipping."); }
+
+                    if (data == null) { yield return null; continue; }
+
+                    string uuid = data.Value<string>("uuid");
+                    if (string.IsNullOrEmpty(uuid)) { yield return null; continue; }
+
+                    // Reuse existing GO if registered; scan scene as fallback; spawn if truly absent
+                    GameObject go = manager.GetByUUID(uuid);
+                    if (go == null)
+                    {
+                        var sceneEntities = UnityEngine.Object.FindObjectsByType<EntitySync>(
+                            FindObjectsInactive.Include, FindObjectsSortMode.None);
+                        foreach (var s in sceneEntities)
+                            if (s.uuid == uuid) { go = s.gameObject; break; }
+                    }
+
+                    if (go != null)
+                    {
+                        manager.Register(uuid, go);
+                        go.name = data.Value<string>("name") ?? go.name;
+                    }
+                    else
+                    {
+                        go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
+                        if (go == null) { yield return null; continue; }
+                        manager.Register(uuid, go);
+                    }
+
+                    entityData.Add((uuid, data, go));
+                    yield return null;
+                }
+
+                // PASS 2 – Wire hierarchy
+                EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring hierarchy…", 0.33f);
+                for (int i = 0; i < entityData.Count; i++)
+                {
+                    var (uuid, data, go) = entityData[i];
+                    string parentUuid = data.Value<string>("parentUuid");
+                    if (!string.IsNullOrEmpty(parentUuid))
+                    {
+                        GameObject parentGo = manager.GetByUUID(parentUuid);
+                        if (parentGo != null && go.transform.parent != parentGo.transform)
+                            go.transform.SetParent(parentGo.transform, false);
+                    }
+                    else if (go.transform.parent != null)
+                    {
+                        go.transform.SetParent(null, false);
+                    }
+                    EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
+                }
+
+                // PASS 3 – Apply transforms & customData
+                EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…", 0.66f);
+                for (int i = 0; i < entityData.Count; i++)
+                {
+                    var (uuid, data, go) = entityData[i];
+                    ApplyTransform(go, data["transform"] as JObject);
+                    ReconcileComponents(go, data["customData"] as JArray);
+                    EditorUtility.DisplayProgressBar("JSON Scenes", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
+                }
+
+                // Prune scene objects that have no backing JSON file
+                PruneOrphanEntities(manager);
+
+                EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+                Debug.Log($"[JsonScenes] Reconcile complete — {entityData.Count} entities.");
+            }
+            finally
+            {
                 EditorUtility.ClearProgressBar();
                 _isBootstrapping = false;
             }
@@ -249,13 +374,51 @@ namespace JsonScenesForUnity.Editor
 
         // ─── customData serialization ─────────────────────────────────────────────
 
-        private static void ApplyCustomData(GameObject go, JArray customData)
+        /// <summary>
+        /// Reconciles the MonoBehaviour components on a GameObject against the customData array.
+        /// Components in the JSON are applied (added if missing, fields updated).
+        /// MonoBehaviours on the GO that are absent from the JSON are removed.
+        /// </summary>
+        private static void ReconcileComponents(GameObject go, JArray customData)
         {
+            // Build the set of types declared in JSON (with per-type counts for multi-component)
+            var jsonTypeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (customData != null)
+            {
+                foreach (JObject entry in customData)
+                {
+                    string typeName = entry.Value<string>("type");
+                    if (string.IsNullOrEmpty(typeName)) continue;
+                    jsonTypeCounts.TryGetValue(typeName, out int count);
+                    jsonTypeCounts[typeName] = count + 1;
+                }
+            }
+
+            // Remove MonoBehaviours not present in JSON
+            // Iterate in reverse so removal doesn't shift indices
+            var existing = go.GetComponents<MonoBehaviour>();
+            for (int i = existing.Length - 1; i >= 0; i--)
+            {
+                var mb = existing[i];
+                if (mb == null) continue;
+                if (mb is EntitySync) continue; // never remove EntitySync
+
+                string typeName = mb.GetType().FullName;
+                jsonTypeCounts.TryGetValue(typeName, out int allowedCount);
+                if (allowedCount <= 0)
+                {
+                    UnityEngine.Object.DestroyImmediate(mb);
+                }
+                else
+                {
+                    jsonTypeCounts[typeName] = allowedCount - 1;
+                }
+            }
+
+            // Reset counters and apply field values (add missing components, update fields)
             if (customData == null || customData.Count == 0) return;
 
-            // Build a per-type index for multi-component support
             var typeCounters = new Dictionary<string, int>(StringComparer.Ordinal);
-
             foreach (JObject entry in customData)
             {
                 string typeName = entry.Value<string>("type");
@@ -271,14 +434,17 @@ namespace JsonScenesForUnity.Editor
                     continue;
                 }
 
-                MonoBehaviour[] components = (MonoBehaviour[])go.GetComponents(componentType);
-                if (idx >= components.Length)
+                Component[] components = go.GetComponents(componentType);
+                MonoBehaviour component;
+                if (idx < components.Length)
                 {
-                    Debug.LogWarning($"[JsonScenes] Component index {idx} out of range for type {typeName} on {go.name}");
-                    continue;
+                    component = components[idx] as MonoBehaviour;
+                }
+                else
+                {
+                    component = (MonoBehaviour)go.AddComponent(componentType);
                 }
 
-                MonoBehaviour component = components[idx];
                 DeserializeComponentFields(component, entry);
             }
         }
@@ -485,19 +651,38 @@ namespace JsonScenesForUnity.Editor
             GameObject go = manager.GetByUUID(uuid);
             if (go == null)
             {
-                // New entity — instantiate and mark scene dirty so Unity saves it.
-                go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
-                if (go == null) return;
-                manager.Register(uuid, go);
-                EditorSceneManager.MarkSceneDirty(go.scene);
+                // Registry miss — scan the scene for an existing EntitySync with this UUID
+                // before spawning a new object. Covers domain-reload registry gaps and
+                // races where the async bootstrap hasn't finished registering yet.
+                var existing = UnityEngine.Object.FindObjectsByType<EntitySync>(
+                    FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var s in existing)
+                {
+                    if (s.uuid == uuid) { go = s.gameObject; break; }
+                }
+
+                if (go != null)
+                {
+                    Debug.Log($"[JsonScenes] HotReload: uuid={uuid} not in registry but found in scene — re-registering '{go.name}'");
+                    manager.Register(uuid, go);
+                }
+                else
+                {
+                    Debug.Log($"[JsonScenes] HotReload: uuid={uuid} not in registry or scene — SPAWNING new object '{data.Value<string>("name")}'");
+                    go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
+                    if (go == null) return;
+                    manager.Register(uuid, go);
+                    EditorSceneManager.MarkSceneDirty(go.scene);
+                }
             }
             else
             {
-                // Update name
-                string newName = data.Value<string>("name");
-                if (!string.IsNullOrEmpty(newName))
-                    go.name = newName;
+                Debug.Log($"[JsonScenes] HotReload: uuid={uuid} found in registry — UPDATING '{go.name}'");
             }
+
+            string newName = data.Value<string>("name");
+            if (!string.IsNullOrEmpty(newName))
+                go.name = newName;
 
             // Re-wire parent
             string parentUuid = data.Value<string>("parentUuid");
@@ -505,15 +690,21 @@ namespace JsonScenesForUnity.Editor
             {
                 GameObject parentGo = manager.GetByUUID(parentUuid);
                 if (parentGo != null && go.transform.parent != parentGo.transform)
-                    go.transform.SetParent(parentGo.transform, false);
+                    Undo.SetTransformParent(go.transform, parentGo.transform, "JSON Scenes: Reparent");
             }
             else if (go.transform.parent != null)
             {
-                go.transform.SetParent(null, false);
+                Undo.SetTransformParent(go.transform, null, "JSON Scenes: Unparent");
             }
 
             ApplyTransform(go, data["transform"] as JObject);
-            ApplyCustomData(go, data["customData"] as JArray);
+            ReconcileComponents(go, data["customData"] as JArray);
+
+            EditorUtility.SetDirty(go);
+            if (go.scene.IsValid())
+                EditorSceneManager.MarkSceneDirty(go.scene);
+            EditorApplication.RepaintHierarchyWindow();
+            UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
         }
 
         /// <summary>
@@ -524,8 +715,13 @@ namespace JsonScenesForUnity.Editor
             GameObject go = manager.GetByUUID(uuid);
             if (go != null)
             {
+                Debug.Log($"[JsonScenes] DestroyEntity: uuid={uuid} — destroying '{go.name}'");
                 manager.Unregister(uuid);
                 UnityEngine.Object.DestroyImmediate(go);
+            }
+            else
+            {
+                Debug.Log($"[JsonScenes] DestroyEntity: uuid={uuid} — not in registry, nothing to destroy");
             }
         }
 

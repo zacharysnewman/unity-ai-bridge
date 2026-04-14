@@ -2,8 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Threading;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -12,9 +11,9 @@ using JsonScenesForUnity;
 namespace JsonScenesForUnity.Editor
 {
     /// <summary>
-    /// Manages the FileSystemWatcher on the Entities/ and Commands/ directories.
-    /// Drives the debounced write pipeline (300 ms) and routes hot-reload events to SceneIO
-    /// on the main Unity thread via EditorApplication.delayCall.
+    /// Drives the Unity→JSON write pipeline (300 ms debounce).
+    /// Listens for scene object changes via ObjectChangeEvents and flushes dirty entities to disk.
+    /// JSON→Unity sync (create, modify, delete) is handled by EntityAssetPostprocessor.
     ///
     /// Initialized via [InitializeOnLoad]. Pauses write detection during Play Mode.
     /// </summary>
@@ -23,16 +22,14 @@ namespace JsonScenesForUnity.Editor
     {
         private const double DebounceSeconds = 0.3;
 
-        private static FileSystemWatcher _entitiesWatcher;
-        private static FileSystemWatcher _commandsWatcher;
-
-        // Pending hot-reload events (file path → event type)
-        private static readonly Queue<(string path, WatcherChangeTypes changeType)> _pendingFileEvents
-            = new Queue<(string, WatcherChangeTypes)>();
-
         // Dirty entities queued for write (uuid → debounce deadline)
         private static readonly Dictionary<string, double> _pendingWrites
             = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        // FSW used solely to trigger AssetDatabase.Refresh() when entity files change externally.
+        // The actual sync logic lives in EntityAssetPostprocessor.
+        private static FileSystemWatcher _entitiesWatcher;
+        private static volatile int _pendingRefresh = 0; // 1 = refresh needed
 
         private static bool _isPlayMode;
         private static bool _isReloading;
@@ -75,8 +72,6 @@ namespace JsonScenesForUnity.Editor
         private static void OnAfterAssemblyReload()
         {
             _isReloading = false;
-            // TryBootstrap will be called again via [InitializeOnLoad] after reload,
-            // so no explicit restart needed here — this is a safety fallback.
             EditorApplication.delayCall += TryBootstrap;
         }
 
@@ -87,62 +82,37 @@ namespace JsonScenesForUnity.Editor
             var manager = SceneDataManager.Instance;
             if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
 
-            // If the scene already has persistent entities, rebuild the registry from them
-            // (domain reload: objects survived, only static C# state was lost).
-            // Only run a full bootstrap if the scene is empty but JSON files exist.
-            int registeredCount = SceneIO.RebuildRegistry(manager);
-            if (registeredCount == 0)
-            {
-                string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
-                bool hasJsonFiles = Directory.Exists(entitiesDir) &&
-                                    Directory.GetFiles(entitiesDir, "*.json").Length > 0;
-                if (hasJsonFiles)
-                    EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
-            }
-            else
-            {
-                // Scene has persistent entities — destroy any that have no backing JSON file.
-                // This enforces the invariant: every EntitySync must have a corresponding file.
-                SceneIO.PruneOrphanEntities(manager);
-            }
+            // Rebuild the registry from existing scene objects first (fast, no file I/O),
+            // then reconcile against JSON to update/spawn/prune. JSON always wins on load.
+            SceneIO.RebuildRegistry(manager);
+
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            if (Directory.Exists(entitiesDir))
+                EditorCoroutineRunner.StartEditorCoroutine(SceneIO.ReconcileScene(manager));
 
             StartWatcher(manager.sceneDataPath);
         }
 
-        // ─── File system watcher ──────────────────────────────────────────────────
+        // ─── File system watcher (refresh trigger only) ───────────────────────────
 
         private static void StartWatcher(string sceneDataPath)
         {
             StopWatcher();
 
             string entitiesDir = Path.Combine(sceneDataPath, "Entities");
-            string commandsDir = Path.Combine(sceneDataPath, "Commands");
+            if (!Directory.Exists(entitiesDir)) return;
 
-            if (Directory.Exists(entitiesDir))
+            _entitiesWatcher = new FileSystemWatcher(entitiesDir, "*.json")
             {
-                _entitiesWatcher = CreateWatcher(entitiesDir, "*.json");
-            }
-
-            if (Directory.Exists(commandsDir))
-            {
-                _commandsWatcher = CreateWatcher(commandsDir, "*.json");
-            }
-        }
-
-        private static FileSystemWatcher CreateWatcher(string directory, string filter)
-        {
-            var watcher = new FileSystemWatcher(directory, filter)
-            {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
-                EnableRaisingEvents = true,
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
                 IncludeSubdirectories = false,
+                EnableRaisingEvents = true,
             };
 
-            watcher.Created += OnFileEvent;
-            watcher.Changed += OnFileEvent;
-            watcher.Deleted += OnFileDeleted;
-
-            return watcher;
+            _entitiesWatcher.Created += OnEntityFileChanged;
+            _entitiesWatcher.Changed += OnEntityFileChanged;
+            _entitiesWatcher.Deleted += OnEntityFileChanged;
+            _entitiesWatcher.Renamed += OnEntityFileChanged;
         }
 
         private static void StopWatcher()
@@ -153,25 +123,12 @@ namespace JsonScenesForUnity.Editor
                 _entitiesWatcher.Dispose();
                 _entitiesWatcher = null;
             }
-            if (_commandsWatcher != null)
-            {
-                _commandsWatcher.EnableRaisingEvents = false;
-                _commandsWatcher.Dispose();
-                _commandsWatcher = null;
-            }
         }
 
-        // FSW callbacks — called on a background thread; marshal to main thread
-        private static void OnFileEvent(object sender, FileSystemEventArgs e)
+        // Called on a background thread — just flag that a refresh is needed.
+        private static void OnEntityFileChanged(object sender, FileSystemEventArgs e)
         {
-            lock (_pendingFileEvents)
-                _pendingFileEvents.Enqueue((e.FullPath, e.ChangeType));
-        }
-
-        private static void OnFileDeleted(object sender, FileSystemEventArgs e)
-        {
-            lock (_pendingFileEvents)
-                _pendingFileEvents.Enqueue((e.FullPath, WatcherChangeTypes.Deleted));
+            Interlocked.Exchange(ref _pendingRefresh, 1);
         }
 
         // ─── Editor update loop ───────────────────────────────────────────────────
@@ -180,146 +137,10 @@ namespace JsonScenesForUnity.Editor
         {
             if (_isPlayMode || _isReloading) return;
 
-            // Flush FSW events on main thread
-            FlushFileEvents();
-
-            // Flush debounced write queue
             FlushWriteQueue();
-        }
 
-        private static void FlushFileEvents()
-        {
-            List<(string path, WatcherChangeTypes changeType)> events = null;
-
-            lock (_pendingFileEvents)
-            {
-                if (_pendingFileEvents.Count == 0) return;
-                events = new List<(string, WatcherChangeTypes)>(_pendingFileEvents.Count);
-                while (_pendingFileEvents.Count > 0)
-                    events.Add(_pendingFileEvents.Dequeue());
-            }
-
-            var manager = SceneDataManager.Instance;
-            if (manager == null) return;
-
-            string sceneDataPath = manager.sceneDataPath;
-            string entitiesDir = Path.Combine(sceneDataPath, "Entities");
-            string commandsDir = Path.Combine(sceneDataPath, "Commands");
-
-            foreach (var (path, changeType) in events)
-            {
-                bool isInEntities = path.StartsWith(entitiesDir, StringComparison.OrdinalIgnoreCase);
-                bool isInCommands = path.StartsWith(commandsDir, StringComparison.OrdinalIgnoreCase);
-
-                if (isInEntities)
-                {
-                    HandleEntityFileEvent(path, changeType, manager);
-                }
-                else if (isInCommands)
-                {
-                    HandleCommandFileEvent(path, manager);
-                }
-            }
-        }
-
-        private static void HandleEntityFileEvent(string filePath, WatcherChangeTypes changeType, SceneDataManager manager)
-        {
-            if (changeType == WatcherChangeTypes.Deleted)
-            {
-                string uuid = Path.GetFileNameWithoutExtension(filePath);
-                SceneIO.DestroyEntity(uuid, manager);
-            }
-            else
-            {
-                // Created or Changed — external write wins
-                SceneIO.HotReloadEntity(filePath, manager);
-            }
-        }
-
-        private static void HandleCommandFileEvent(string filePath, SceneDataManager manager)
-        {
-            if (!File.Exists(filePath)) return;
-
-            JObject command;
-            try
-            {
-                command = JObject.Parse(File.ReadAllText(filePath));
-            }
-            catch
-            {
-                return;
-            }
-
-            // Delete command file immediately
-            try { File.Delete(filePath); } catch { }
-
-            string commandName = command.Value<string>("command");
-            string targetUuid = command.Value<string>("targetUuid");
-
-            switch (commandName)
-            {
-                case "force_reload":
-                    ExecuteForceReload(targetUuid, manager);
-                    break;
-
-                case "validate_scene":
-                    ExecuteValidateScene(manager);
-                    break;
-
-                default:
-                    Debug.LogWarning($"[JsonScenes] Unknown command: {commandName}");
-                    break;
-            }
-        }
-
-        // ─── Commands ─────────────────────────────────────────────────────────────
-
-        private static void ExecuteForceReload(string targetUuid, SceneDataManager manager)
-        {
-            // Refresh the asset database first so Unity picks up any file changes
-            // that FileSystemWatcher may have missed (known reliability issue on macOS).
-            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
-
-            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
-
-            if (!string.IsNullOrEmpty(targetUuid))
-            {
-                string filePath = Path.Combine(entitiesDir, targetUuid + ".json");
-                if (File.Exists(filePath))
-                    SceneIO.HotReloadEntity(filePath, manager);
-                else
-                    SceneIO.DestroyEntity(targetUuid, manager);
-            }
-            else
-            {
-                // Full scene reload
-                EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
-            }
-        }
-
-        private static void ExecuteValidateScene(SceneDataManager manager)
-        {
-            var result = SceneIO.ValidateScene(manager.sceneDataPath);
-            string commandsDir = Path.Combine(manager.sceneDataPath, "Commands");
-
-            var output = new JObject
-            {
-                ["valid"] = result.valid,
-                ["errors"] = new JArray()
-            };
-
-            foreach (var error in result.errors)
-            {
-                ((JArray)output["errors"]).Add(new JObject
-                {
-                    ["uuid"] = error.uuid,
-                    ["field"] = error.field,
-                    ["message"] = error.message,
-                });
-            }
-
-            string resultPath = Path.Combine(commandsDir, "validate_result.json");
-            File.WriteAllText(resultPath, output.ToString(Formatting.Indented));
+            if (Interlocked.Exchange(ref _pendingRefresh, 0) == 1)
+                AssetDatabase.Refresh();
         }
 
         // ─── Write pipeline (Unity Editor → JSON) ────────────────────────────────
@@ -369,7 +190,8 @@ namespace JsonScenesForUnity.Editor
 
         private static void MarkDirtyByInstanceId(int instanceId)
         {
-            var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
+            var obj = EditorUtility.InstanceIDToObject(instanceId);
+            var go = obj as GameObject ?? (obj as Component)?.gameObject;
             if (go == null) return;
 
             var sync = go.GetComponent<EntitySync>();
@@ -386,22 +208,50 @@ namespace JsonScenesForUnity.Editor
             var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
             if (go == null) return;
 
-            // Skip objects already managed (created by BootstrapScene or HotReloadEntity).
-            if (go.GetComponent<EntitySync>() != null) return;
-
             // Skip system objects — SceneDataManager is not an entity.
             if (go.GetComponent<SceneDataManager>() != null) return;
 
             var manager = SceneDataManager.Instance;
             if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
 
-            // Attach EntitySync, assign UUID, register, write JSON, and mark scene dirty.
-            // This is the Unity→JSON direction of bidirectional creation.
-            var sync = go.AddComponent<EntitySync>();
+            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            var sync = go.GetComponent<EntitySync>();
+
+            if (sync != null)
+            {
+                // Object already has EntitySync — could be a duplicate (Ctrl+D).
+                var registeredGo = manager.GetByUUID(sync.uuid);
+                if (registeredGo == go)
+                {
+                    Debug.Log($"[JsonScenes] CreateEvent: '{go.name}' already registered, skipping");
+                    return;
+                }
+
+                if (registeredGo != null)
+                {
+                    string oldUuid = sync.uuid;
+                    sync.uuid = System.Guid.NewGuid().ToString();
+                    Debug.Log($"[JsonScenes] CreateEvent: DUPLICATE '{go.name}' (was uuid={oldUuid}) — assigning new uuid={sync.uuid}");
+                }
+                else
+                {
+                    Debug.Log($"[JsonScenes] CreateEvent: '{go.name}' has EntitySync but unregistered — re-registering uuid={sync.uuid}");
+                }
+
+                manager.Register(sync.uuid, go);
+                if (Directory.Exists(entitiesDir))
+                    SceneIO.WriteEntity(go, entitiesDir);
+                if (go.scene.IsValid())
+                    EditorSceneManager.MarkSceneDirty(go.scene);
+                return;
+            }
+
+            // Brand new object — attach EntitySync, assign UUID, register, write JSON.
+            sync = go.AddComponent<EntitySync>();
             sync.uuid = System.Guid.NewGuid().ToString();
+            Debug.Log($"[JsonScenes] CreateEvent: NEW '{go.name}' — assigned uuid={sync.uuid}");
             manager.Register(sync.uuid, go);
 
-            string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
             if (Directory.Exists(entitiesDir))
                 SceneIO.WriteEntity(go, entitiesDir);
 
@@ -413,25 +263,39 @@ namespace JsonScenesForUnity.Editor
         {
             if (SuppressWriteEvents) return;
 
-            // Object is being destroyed — find it before it's gone
-            // (instanceId may still resolve briefly during the change event)
-            var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
-            if (go == null) return;
+            // ObjectChangeEvents fires after destruction — InstanceIDToObject returns null.
+            // Defer to next frame and scan the registry for entries whose GO is gone.
+            EditorApplication.delayCall += PruneDestroyedEntities;
+        }
 
+        private static void PruneDestroyedEntities()
+        {
             var manager = SceneDataManager.Instance;
             if (manager == null) return;
 
             string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
+            var toRemove = new List<string>();
 
-            // Walk the entire hierarchy (root + all descendants) so that deleting a
-            // parent also removes every child's JSON file — not just the root's.
-            foreach (var sync in go.GetComponentsInChildren<EntitySync>(includeInactive: true))
+            foreach (string uuid in manager.GetAllUUIDs())
             {
-                if (string.IsNullOrEmpty(sync.uuid)) continue;
-                string filePath = Path.Combine(entitiesDir, sync.uuid + ".json");
-                if (File.Exists(filePath))
+                if (manager.GetByUUID(uuid) == null)
+                    toRemove.Add(uuid);
+            }
+
+            if (toRemove.Count == 0)
+            {
+                Debug.Log("[JsonScenes] PruneDestroyed: no destroyed entities found in registry");
+                return;
+            }
+
+            foreach (string uuid in toRemove)
+            {
+                string filePath = Path.Combine(entitiesDir, uuid + ".json");
+                bool fileExisted = File.Exists(filePath);
+                if (fileExisted)
                     File.Delete(filePath);
-                manager.Unregister(sync.uuid);
+                manager.Unregister(uuid);
+                Debug.Log($"[JsonScenes] PruneDestroyed: uuid={uuid} — removed from registry, json deleted={fileExisted}");
             }
         }
 
@@ -479,8 +343,6 @@ namespace JsonScenesForUnity.Editor
 
                 case PlayModeStateChange.EnteredEditMode:
                     _isPlayMode = false;
-                    // Entities are persistent — they survived Play Mode intact.
-                    // Just re-register them (static C# state was reset on domain reload).
                     var manager = SceneDataManager.Instance;
                     if (manager != null && !string.IsNullOrEmpty(manager.sceneDataPath))
                     {
@@ -489,6 +351,37 @@ namespace JsonScenesForUnity.Editor
                     }
                     break;
             }
+        }
+
+        /// <summary>
+        /// Removes all EntitySync components and the SceneDataManager from the scene,
+        /// leaving the GameObjects intact. Does not delete any JSON files.
+        /// </summary>
+        [MenuItem("JSON Scenes/Clean Scene")]
+        public static void CleanScene()
+        {
+            if (!EditorUtility.DisplayDialog(
+                "Clean Scene",
+                "This will remove all EntitySync components and the SceneDataManager from the scene. GameObjects and JSON files will not be deleted.\n\nContinue?",
+                "Clean", "Cancel"))
+                return;
+
+            int removedSyncs = 0;
+            var syncs = UnityEngine.Object.FindObjectsByType<EntitySync>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var sync in syncs)
+            {
+                Undo.DestroyObjectImmediate(sync);
+                removedSyncs++;
+            }
+
+            var manager = SceneDataManager.Instance;
+            if (manager != null)
+                Undo.DestroyObjectImmediate(manager.gameObject);
+
+            StopWatcher();
+
+            Debug.Log($"[JsonScenes] Clean Scene: removed {removedSyncs} EntitySync component(s) and SceneDataManager.");
         }
 
         /// <summary>
