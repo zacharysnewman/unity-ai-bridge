@@ -33,7 +33,7 @@ This also installs the required `com.unity.nuget.newtonsoft-json` dependency.
 2. Add an empty GameObject, name it `SceneDataManager`
 3. Add the **Scene Data Manager** component to it
 4. Open **JSON Scenes → Setup Window** and set the **Scene Data Path**, e.g. `Assets/SceneData/Level_01`
-5. Click **Create Directory Structure** — this creates the `Entities/`, `Commands/`, and `manifest.json` automatically
+5. Click **Create Directory Structure** — this creates the `Entities/` directory and `manifest.json` automatically
 6. Save the scene (`Ctrl+S`) — this is the only time you need to save it
 
 ### 2. Verify
@@ -52,7 +52,6 @@ The package bootstraps automatically on Editor load. Any `.json` files placed in
 ```
 Assets/SceneData/Level_01/
 ├── manifest.json          ← scene metadata (name, schema version)
-├── Commands/              ← short-lived command files (auto-deleted after execution)
 └── Entities/
     ├── <uuid>.json        ← one file per entity
     └── <uuid>.json

@@ -764,9 +764,7 @@ namespace JsonScenesForUnity.Editor
 
             // Create directories if missing — Directory.CreateDirectory is a no-op if they exist.
             string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
-            string commandsDir = Path.Combine(manager.sceneDataPath, "Commands");
             Directory.CreateDirectory(entitiesDir);
-            Directory.CreateDirectory(commandsDir);
 
             // Create manifest only if missing — never overwrite (schemaVersion must not change).
             string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");

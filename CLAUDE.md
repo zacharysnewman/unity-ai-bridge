@@ -15,7 +15,6 @@ Each scene maps to a directory you configure in the `SceneDataManager` component
 ```
 Assets/SceneData/Level_01/
 ├── manifest.json            # Scene metadata — do not modify schemaVersion
-├── Commands/                # Short-lived command files (auto-deleted after execution)
 └── Entities/
     ├── <uuid>.json          # One file per entity; filename == uuid field exactly
     └── <uuid>.json
@@ -220,17 +219,7 @@ Delete the JSON file. Unity destroys the corresponding `GameObject` automaticall
 
 ## Triggering Validation
 
-To validate the scene (checks prefab paths, parent UUIDs, component type resolution):
-
-Write to `Commands/validate.json`:
-```json
-{ "command": "validate_scene" }
-```
-
-Unity processes the command and writes the result to `Commands/validate_result.json`.
-Read the result file to check `valid` and any `errors`.
-
-Alternatively, use `JSON Scenes → Validate Scene` from the Unity menu.
+To validate the scene (checks prefab paths, parent UUIDs, component type resolution), use `JSON Scenes → Validate Scene` from the Unity menu.
 
 ---
 
