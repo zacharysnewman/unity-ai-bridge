@@ -128,6 +128,52 @@ Minimal setup UI accessible via `JSON Scenes → Setup Window`:
 
 ---
 
+## Completed Features (continued)
+
+### 13. Computed `sceneDataPath` + Scene Lifecycle Handling
+
+**Motivation:** `sceneDataPath` is currently a manually-configured serialized string on `SceneDataManager`. If the `.unity` scene file is renamed or deleted via the Project window, the stored string becomes stale and sync breaks silently.
+
+**Changes:**
+
+- **`SceneDataManager`** — remove the serialized `sceneDataPath` string field. Replace with a computed property that derives the path from `gameObject.scene.path` at runtime using the convention `Assets/Scenes/Level_01.unity` → `Assets/SceneData/Scenes/Level_01`. Display-only (read-only) in the Inspector. Guard: return `null` and log a warning when `scene.path` is empty (unsaved scene).
+
+- **New `SceneAssetModificationProcessor`** — `AssetModificationProcessor` subclass (Editor assembly):
+  - `OnWillMoveAsset`: when a `.unity` file is renamed/moved, compute old and new data directory paths and call `AssetDatabase.MoveAsset` to rename the data directory atomically. Return `DidNotMove` so Unity handles the `.unity` file itself.
+  - `OnWillDeleteAsset`: when a `.unity` file is deleted, compute the data directory path and prompt the user to delete it. Return `DidNotDelete` regardless of choice.
+
+- **`InitializeScene`** — remove the `sceneDataPath` defaulting logic (no longer needed; path is always derived).
+
+- **`SceneDataManagerWindow`** — update the Inspector/setup window to display the derived path as read-only instead of an editable field.
+
+**Caveats to resolve during implementation:**
+- Verify `AssetDatabase.MoveAsset` is safe to call from within `OnWillMoveAsset`. If not, fall back to `EditorApplication.delayCall` (one-frame racy but functionally correct).
+- OS-level file moves (Finder, `mv`) bypass `AssetModificationProcessor` — document as a known limitation; user must move the data directory manually and call `AssetDatabase.Refresh`.
+
+**Files:** `Runtime/SceneDataManager.cs`, `Editor/LiveSyncController.cs`, `Editor/SceneAssetModificationProcessor.cs` (new)
+
+**Spec:** §4.1, §4.5, §5.5
+
+---
+
+### 14. Sibling Index Serialization
+
+**Motivation:** Without sibling index, hierarchy child order is non-deterministic after load (UUID-alphabetical). This breaks `transform.GetChild(index)`, UI layout groups, canvas render order, and any script that iterates children positionally.
+
+**Changes:**
+
+- **`SerializeEntity`** — writes `siblingIndex` as `go.transform.GetSiblingIndex()`
+- **`BootstrapScene` / `ReconcileScene`** — added Pass 2b after all `SetParent` calls: iterates entities and calls `SetSiblingIndex`. Must run after Pass 2 so all siblings exist before ordering
+- **`HotReloadEntity`** — applies `SetSiblingIndex` after parent wiring
+- **`entity.schema.json`** — added `siblingIndex` as optional integer ≥ 0
+- **SPEC.md** — added to field reference table; removed from non-goals
+
+**Files:** `Editor/SceneIO.cs`, `Schemas/entity.schema.json`
+
+**Spec:** §3.3
+
+---
+
 ## Known Limitations & Open Items
 
 | Item | Status |
@@ -136,6 +182,7 @@ Minimal setup UI accessible via `JSON Scenes → Setup Window`:
 | FileSystemWatcher reliability on macOS | Known issue — mitigated by `AssetDatabase.Refresh` on force reload |
 | Domain Reload disabled incompatibility | Not supported — requires Unity's default domain reload enabled (per SPEC.md §5.4) |
 | Same-type multi-component reordering | Accepted trade-off — component index maps by order, reordering same-type components breaks index alignment |
+| OS-level scene rename/move | `AssetModificationProcessor` only intercepts Project-window operations; Finder/`mv` renames require manual data directory move + `AssetDatabase.Refresh` |
 
 ---
 

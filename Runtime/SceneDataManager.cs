@@ -13,8 +13,27 @@ namespace JsonScenesForUnity
     [AddComponentMenu("JSON Scenes/Scene Data Manager")]
     public class SceneDataManager : MonoBehaviour
     {
-        [Tooltip("Project-relative path to the scene data directory, e.g. Assets/SceneData/Level_01")]
-        public string sceneDataPath;
+        /// <summary>
+        /// Project-relative path to the scene data directory.
+        /// Derived from the scene file path — no manual configuration needed.
+        /// Convention: Assets/Scenes/Level_01.unity → Assets/SceneData/Scenes/Level_01
+        /// Returns null if the scene has not been saved yet.
+        /// </summary>
+        public string sceneDataPath
+        {
+            get
+            {
+                string scenePath = gameObject.scene.path;
+                if (string.IsNullOrEmpty(scenePath))
+                    return null;
+                // Mirror folder structure under Assets/SceneData/
+                // Assets/Scenes/Level_01.unity → Assets/SceneData/Scenes/Level_01
+                string withoutExt = scenePath.Substring(0, scenePath.Length - ".unity".Length);
+                if (withoutExt.StartsWith("Assets/"))
+                    return "Assets/SceneData/" + withoutExt.Substring("Assets/".Length);
+                return "Assets/SceneData/" + withoutExt;
+            }
+        }
 
         private readonly Dictionary<string, GameObject> _uuidToGameObject = new Dictionary<string, GameObject>();
 

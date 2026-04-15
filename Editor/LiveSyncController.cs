@@ -172,6 +172,17 @@ namespace JsonScenesForUnity.Editor
                             MarkDirtyByInstanceId(ev.instanceId);
                             break;
                         }
+                    case ObjectChangeKind.ChangeChildrenOrder:
+                        {
+                            stream.GetChangeChildrenOrderEvent(i, out var ev);
+                            // Event fires on the parent — mark all children dirty so
+                            // their siblingIndex fields are written with the new order.
+                            var parent = EditorUtility.InstanceIDToObject(ev.instanceId) as GameObject;
+                            if (parent == null) break;
+                            foreach (Transform child in parent.transform)
+                                MarkDirtyByInstanceId(child.gameObject.GetInstanceID());
+                            break;
+                        }
                     case ObjectChangeKind.CreateGameObjectHierarchy:
                         {
                             stream.GetCreateGameObjectHierarchyEvent(i, out var ev);
@@ -386,14 +397,25 @@ namespace JsonScenesForUnity.Editor
 
         /// <summary>
         /// Fully initializes the scene for JSON sync in one step:
-        /// creates the SceneDataManager if absent, defaults the sceneDataPath to
-        /// Assets/SceneData/<SceneName> if unset, creates the directory structure
+        /// creates the SceneDataManager if absent, creates the directory structure
         /// and manifest if missing, then migrates all unmanaged objects into sync.
         /// Idempotent — safe to run on an already-initialized scene.
+        /// The scene must be saved before initialization — sceneDataPath is derived
+        /// from the scene file path automatically.
         /// </summary>
         [MenuItem("JSON Scenes/Initialize Scene")]
         public static void InitializeScene()
         {
+            var activeScene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
+            if (string.IsNullOrEmpty(activeScene.path))
+            {
+                EditorUtility.DisplayDialog(
+                    "Scene Not Saved",
+                    "Save the scene before initializing JSON sync. The data directory path is derived from the scene file path.",
+                    "OK");
+                return;
+            }
+
             var manager = SceneDataManager.Instance;
 
             if (manager == null)
@@ -401,14 +423,6 @@ namespace JsonScenesForUnity.Editor
                 var go = new GameObject("SceneDataManager");
                 manager = go.AddComponent<SceneDataManager>();
                 Undo.RegisterCreatedObjectUndo(go, "Create SceneDataManager");
-            }
-
-            if (string.IsNullOrEmpty(manager.sceneDataPath))
-            {
-                string sceneName = manager.gameObject.scene.name;
-                if (string.IsNullOrEmpty(sceneName)) sceneName = "Scene";
-                manager.sceneDataPath = $"Assets/SceneData/{sceneName}";
-                EditorUtility.SetDirty(manager);
             }
 
             SceneIO.InitializeScene(manager);

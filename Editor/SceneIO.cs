@@ -144,6 +144,16 @@ namespace JsonScenesForUnity.Editor
                     EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
                 }
 
+                // PASS 2b – Apply sibling indices
+                // Must run after all SetParent calls so every sibling exists before ordering.
+                for (int i = 0; i < entityData.Count; i++)
+                {
+                    var (uuid, data, go) = entityData[i];
+                    int siblingIndex = data.Value<int?>("siblingIndex") ?? -1;
+                    if (siblingIndex >= 0)
+                        go.transform.SetSiblingIndex(siblingIndex);
+                }
+
                 // PASS 3 – Apply Transforms & Data
                 EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…", 0.66f);
                 for (int i = 0; i < entityData.Count; i++)
@@ -266,6 +276,15 @@ namespace JsonScenesForUnity.Editor
                         go.transform.SetParent(null, false);
                     }
                     EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
+                }
+
+                // PASS 2b – Apply sibling indices
+                for (int i = 0; i < entityData.Count; i++)
+                {
+                    var (uuid, data, go) = entityData[i];
+                    int siblingIndex = data.Value<int?>("siblingIndex") ?? -1;
+                    if (siblingIndex >= 0)
+                        go.transform.SetSiblingIndex(siblingIndex);
                 }
 
                 // PASS 3 – Apply transforms & customData
@@ -536,6 +555,8 @@ namespace JsonScenesForUnity.Editor
             if (parentSync != null)
                 root["parentUuid"] = parentSync.uuid;
 
+            root["siblingIndex"] = go.transform.GetSiblingIndex();
+
             var t = go.transform;
             root["transform"] = new JObject
             {
@@ -696,6 +717,10 @@ namespace JsonScenesForUnity.Editor
             {
                 Undo.SetTransformParent(go.transform, null, "JSON Scenes: Unparent");
             }
+
+            int siblingIndex = data.Value<int?>("siblingIndex") ?? -1;
+            if (siblingIndex >= 0)
+                go.transform.SetSiblingIndex(siblingIndex);
 
             ApplyTransform(go, data["transform"] as JObject);
             ReconcileComponents(go, data["customData"] as JArray);

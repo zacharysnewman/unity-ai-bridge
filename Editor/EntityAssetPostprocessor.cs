@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -57,6 +58,70 @@ namespace JsonScenesForUnity.Editor
                 Debug.Log($"[JsonScenes] Postprocessor: deleted entity file — uuid={uuid} | manager={(manager != null ? "found" : "NULL")}");
                 if (manager != null)
                     SceneIO.DestroyEntity(uuid, manager);
+            }
+
+            foreach (string assetPath in importedAssets)
+            {
+                if (!assetPath.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) continue;
+                HandleSceneDuplicate(assetPath);
+            }
+        }
+
+        /// <summary>
+        /// When a new .unity file appears with no data directory, checks if it looks like
+        /// a Project-window duplicate (Unity appends " 1", " 2", etc. to the name).
+        /// If the inferred source has a data directory, copies it to the new scene's path.
+        /// </summary>
+        private static void HandleSceneDuplicate(string newScenePath)
+        {
+            string newDataDir = SceneAssetModificationProcessor.ScenePathToDataDir(newScenePath);
+            if (Directory.Exists(Path.GetFullPath(newDataDir)))
+                return; // Data dir already exists — not a duplicate
+
+            string sourceScenePath = FindDuplicateSource(newScenePath);
+            if (sourceScenePath == null) return;
+
+            string sourceDataDir = SceneAssetModificationProcessor.ScenePathToDataDir(sourceScenePath);
+            string fullSource = Path.GetFullPath(sourceDataDir);
+            if (!Directory.Exists(fullSource)) return;
+
+            string fullDest = Path.GetFullPath(newDataDir);
+            CopyDirectory(fullSource, fullDest);
+            AssetDatabase.Refresh();
+            Debug.Log($"[JsonScenes] Duplicated scene data: {sourceDataDir} → {newDataDir}");
+        }
+
+        /// <summary>
+        /// Infers the source scene path for a Unity duplicate by stripping the " N" suffix
+        /// Unity appends (e.g. "Level_01 1.unity" → "Level_01.unity").
+        /// Returns null if the pattern doesn't match or no source file exists.
+        /// </summary>
+        private static string FindDuplicateSource(string newScenePath)
+        {
+            string dir = Path.GetDirectoryName(newScenePath).Replace('\\', '/');
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(newScenePath);
+
+            var match = Regex.Match(nameWithoutExt, @"^(.*)\s+\d+$");
+            if (!match.Success) return null;
+
+            string sourcePath = dir + "/" + match.Groups[1].Value + ".unity";
+            return File.Exists(Path.GetFullPath(sourcePath)) ? sourcePath : null;
+        }
+
+        /// <summary>
+        /// Recursively copies a directory. Skips .meta files — Unity generates fresh ones on refresh.
+        /// </summary>
+        private static void CopyDirectory(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (string file in Directory.GetFiles(source))
+            {
+                if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
+            }
+            foreach (string subDir in Directory.GetDirectories(source))
+            {
+                CopyDirectory(subDir, Path.Combine(destination, Path.GetFileName(subDir)));
             }
         }
 

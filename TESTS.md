@@ -11,6 +11,7 @@
 | J5 | Edit customData field | Component field updated | PASSED | |
 | J6 | Remove customData entry | Component removed from object | PASSED | |
 | J7 | Edit parentUuid | Object reparented | KNOWN LIMITATION | Hierarchy tree only rebuilds when Unity has focus — Unity editor windowing constraint, not fixable via API |
+| J9 | Edit siblingIndex | Object moves to correct position among siblings | KNOWN LIMITATION | Hierarchy reorder only visually updates when Unity has focus — same constraint as J7 |
 | J8 | Delete JSON file | Object destroyed | PASSED | Includes child cleanup when parented |
 
 ## Editor → JSON
@@ -26,3 +27,17 @@
 | E7 | Remove component | JSON customData entry removed | PASSED | |
 | E8 | Reparent object | JSON parentUuid updated | PASSED | |
 | E9 | Delete object | JSON file deleted | PASSED | |
+| E10 | Drag-reorder siblings in hierarchy | JSON `siblingIndex` updated for affected objects | PASSED | |
+
+## Scene Lifecycle
+
+| # | Action | Expected | Status | Notes |
+|---|---|---|---|---|
+| S1 | Delete `.unity` scene file via Project window | Dialog: "Delete associated JSON data at X?" with Delete/Keep options; `.unity` file deleted either way | PASSED | |
+| S2 | Rename `.unity` scene file via Project window | Data directory renamed to match; sync continues on new path | PASSED | |
+| S3 | Move `.unity` scene file to different folder via Project window | Data directory moves to mirror new folder structure; sync continues | PASSED | |
+| S4 | Run "Initialize Scene" on an unsaved scene | Dialog: "Save the scene before initializing" | PASSED | |
+| S5 | Rename `.unity` scene file via OS (Finder/terminal) | Data directory not moved (processor not invoked); sync broken until user manually moves data dir and refreshes | KNOWN LIMITATION | `AssetModificationProcessor` only fires for Project-window operations |
+| S7 | Duplicate `.unity` scene file via Project window (Ctrl+D) | Data directory contents copied to new scene's data directory; UUIDs preserved; new scene syncs independently | PASSED | |
+| S8 | Two scenes with overlapping UUIDs open additively | Each scene resolves UUIDs within its own registry; no collision | KNOWN LIMITATION | `SceneDataManager.Instance` is a static singleton — cross-scene `EntityReference` resolution requires targeting the correct `SceneDataManager` instance directly rather than using `Instance` |
+| S6 | Move `.unity` scene file out of a folder, leaving old parent empty in SceneData | Empty parent folder under `Assets/SceneData/` is deleted after the move | PASSED | |

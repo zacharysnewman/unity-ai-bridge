@@ -94,6 +94,7 @@ Uses **Token-Oriented Object Notation (TOON)** principles to minimize verbosity.
 | `name` | string | Yes | Display name in the Unity hierarchy. |
 | `prefabPath` | string | Yes | Project-relative path to the source prefab, or a primitive identifier (see §3.4). |
 | `parentUuid` | string (UUID v4) | No | UUID of this entity's parent. Omitted or `null` for root-level objects. |
+| `siblingIndex` | integer | No | Zero-based index among siblings under the same parent (or scene root). Preserved on load via `SetSiblingIndex`. Affects `transform.GetChild(index)`, UI layout groups, canvas render order, and any code that iterates children by index. |
 | `transform.pos` | `[x, y, z]` | Yes | **Local-space** position in meters when `parentUuid` is set; world-space when at root. |
 | `transform.rot` | `[x, y, z]` | Yes | **Local-space** Euler angles in degrees when `parentUuid` is set; world-space when at root. Values match what Unity's Inspector displays. Round-trip via `Quaternion.Euler(x,y,z)` ↔ `quaternion.eulerAngles`. Unity applies Euler rotations internally in ZXY order, but the stored `[x,y,z]` values are the same Inspector-visible numbers — no manual reordering needed. |
 | `transform.scl` | `[x, y, z]` | Yes | Local scale (always local, consistent with Unity). |
@@ -132,7 +133,8 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 ### 4.1 `SceneDataManager` (MonoBehaviour)
 
 - The **only serialized object** in the shell `.unity` file.
-- Holds the path to the `Assets/SceneData/...` scene directory.
+- The path to the `Assets/SceneData/...` scene directory is **derived at runtime** from `gameObject.scene.path` — it is not a stored serialized field. Convention: `Assets/Scenes/Level_01.unity` → `Assets/SceneData/Scenes/Level_01`. Folder structure is mirrored to prevent name collisions between same-named scenes in different directories. The derived path is exposed as a read-only display field in the Inspector for debugging visibility.
+- Guard: if `gameObject.scene.path` is empty (unsaved scene), the path property returns `null` and all sync operations bail with a warning.
 - Orchestrates the initial async boot sequence.
 - **Owns the UUID→GameObject lookup dictionary.** Exposes `Instance.GetByUUID(string uuid)` for runtime cross-entity reference resolution.
 - `SceneIO` (Editor assembly) populates the dictionary by calling into `SceneDataManager`'s public API. `SceneDataManager` (Runtime assembly) never references `SceneIO` directly, preserving Runtime/Editor assembly isolation.
@@ -161,7 +163,52 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 - Serializes all `MonoBehaviour` components on custom scripts (see §6.1).
 - Before writing to disk, compares serialized output against the existing file; skips the write if content is identical to prevent spurious disk activity.
 
-### 4.5 `EntityAssetPostprocessor` (Editor Script)
+### 4.5 `SceneAssetModificationProcessor` (Editor Script)
+
+Implements `AssetModificationProcessor` to keep the JSON data directory in sync when the shell `.unity` file is renamed, moved, or deleted via the Unity Project window.
+
+**Path convention (shared with §4.1):**
+
+```
+ScenePathToDataDir(scenePath):
+  strip "Assets/" prefix and ".unity" extension → relative stem
+  return "Assets/SceneData/" + relative stem
+
+Examples:
+  Assets/Scenes/Level_01.unity       → Assets/SceneData/Scenes/Level_01
+  Assets/SubFolder/Boss.unity        → Assets/SceneData/SubFolder/Boss
+```
+
+Both `SceneDataManager` (§4.1) and this processor derive the data directory from the same convention, so they always agree without any stored state.
+
+**`OnWillMoveAsset(sourcePath, destinationPath)`**
+
+Fires before any Project-window rename or move. When the asset is a `.unity` file:
+
+1. Compute `oldDataDir` from `sourcePath` and `newDataDir` from `destinationPath`.
+2. If they differ and `oldDataDir` exists in the asset database, ensure the parent folder of `newDataDir` exists (create if missing via `AssetDatabase.CreateFolder`).
+3. Call `AssetDatabase.MoveAsset(oldDataDir, newDataDir)` to atomically rename the data directory within the asset pipeline.
+4. Return `AssetMoveResult.DidNotMove` — Unity still handles the `.unity` file itself.
+
+If `AssetDatabase.MoveAsset` returns an error string, log a warning; sync will be degraded but not broken (the computed path will point to the new location; the data directory still exists at the old location and can be moved manually).
+
+**`OnWillDeleteAsset(assetPath, options)`**
+
+Fires before Project-window deletion. When the asset is a `.unity` file:
+
+1. Compute `dataDir` from `assetPath`.
+2. If `dataDir` exists, open a dialog: `"Delete associated JSON data at <dataDir>? This cannot be undone."` with **Delete** / **Keep** options.
+3. On **Delete**: call `AssetDatabase.DeleteAsset(dataDir)`.
+4. Return `AssetDeleteResult.DidNotDelete` in both cases — Unity always handles the `.unity` file itself regardless of the user's choice.
+
+**Caveats:**
+
+- `AssetDatabase.MoveAsset` is called from within `OnWillMoveAsset`. This is a side-effecting asset pipeline operation inside a modification callback. It does not recurse (the data directory is a folder, not a `.unity` file) but is not explicitly documented as safe by Unity. If this proves problematic, the fallback is `EditorApplication.delayCall` — slightly racy (there is a one-frame window where the path is stale) but functionally correct.
+- Only Project-window operations are intercepted. Moving files via the OS file system (Finder, `mv`) bypasses `AssetModificationProcessor` entirely; those cases require a manual `AssetDatabase.Refresh` and the user to move the data directory themselves.
+
+---
+
+### 4.6 `EntityAssetPostprocessor` (Editor Script)
 
 Implements `AssetPostprocessor.OnPostprocessAllAssets`. Fires inside Unity whenever files in the project change — runs through Unity's own asset pipeline, which is more reliable than `FileSystemWatcher` for UUID assignment.
 
@@ -230,7 +277,38 @@ The JSON files on disk are **never written to during Play Mode**. The `LiveSyncC
 
 > **Known incompatibility:** If *Project Settings → Editor → Enter Play Mode Settings → Disable Domain Reload* is enabled, Unity does not perform a domain reload on Play Mode entry. `DontSave` objects are **not** automatically destroyed, and the re-bootstrap on exit may produce duplicates. This system requires domain reload to be **enabled** (Unity's default). Projects that have disabled it for faster iteration are not supported.
 
-### 5.5 Prefab Propagation
+### 5.5 Scene Lifecycle (Rename & Delete)
+
+Managed by `SceneAssetModificationProcessor` (§4.5). These operations originate in the Unity Project window.
+
+**Rename / Move:**
+
+```
+User renames Assets/Scenes/Level_01.unity → Level_01_New.unity
+  ↓ OnWillMoveAsset fires
+  ↓ oldDataDir = Assets/SceneData/Scenes/Level_01
+  ↓ newDataDir = Assets/SceneData/Scenes/Level_01_New
+  ↓ AssetDatabase.MoveAsset(oldDataDir, newDataDir)
+  ↓ return DidNotMove — Unity moves the .unity file
+```
+
+After the rename, `SceneDataManager.sceneDataPath` (computed from `gameObject.scene.path`) automatically resolves to the new path. No manual update is needed.
+
+**Delete:**
+
+```
+User deletes Assets/Scenes/Level_01.unity
+  ↓ OnWillDeleteAsset fires
+  ↓ dataDir = Assets/SceneData/Scenes/Level_01
+  ↓ Dialog: "Delete associated JSON data at Assets/SceneData/Scenes/Level_01?"
+      ├─ Delete → AssetDatabase.DeleteAsset(dataDir)
+      └─ Keep   → data directory remains on disk (orphaned)
+  ↓ return DidNotDelete — Unity deletes the .unity file
+```
+
+---
+
+### 5.6 Prefab Propagation
 
 Because entities are instantiated via `PrefabUtility.InstantiatePrefab()`, Unity maintains a live prefab connection for each entity in memory — identical to normal scene behavior. When a `.prefab` asset is modified, Unity automatically propagates changes to all connected instances in the hierarchy.
 
@@ -277,6 +355,8 @@ Direct `GameObject` or `MonoBehaviour` references are prohibited in synced scrip
 
 - Use the `EntityReference` struct (wraps a `string targetUUID`) wherever cross-entity references are needed.
 - Resolve at runtime with `SceneDataManager.Instance.GetByUUID(targetUUID)`.
+
+> **Known limitation (multi-scene):** `SceneDataManager.Instance` is a static singleton — it returns the manager that was most recently enabled. In an additively-loaded multi-scene setup, cross-scene `EntityReference` resolution via `Instance` will only search the active scene's registry. To resolve a UUID from a specific scene, hold a direct reference to that scene's `SceneDataManager` and call `GetByUUID` on it directly. UUIDs are only required to be unique within a scene, so two additively-loaded scenes may share UUIDs without registry collision.
 
 ```csharp
 [Serializable]

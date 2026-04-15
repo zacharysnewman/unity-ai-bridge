@@ -40,6 +40,11 @@
       ],
       "description": "UUID of the parent entity. Omit or null for root-level objects."
     },
+    "siblingIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero-based index among siblings under the same parent (or scene root). Determines child ordering for transform.GetChild(index), UI layout groups, canvas render order, etc."
+    },
     "transform": {
       "type": "object",
       "required": ["pos", "rot", "scl"],
