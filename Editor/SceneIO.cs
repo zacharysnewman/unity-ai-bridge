@@ -711,11 +711,11 @@ namespace JsonScenesForUnity.Editor
             {
                 GameObject parentGo = manager.GetByUUID(parentUuid);
                 if (parentGo != null && go.transform.parent != parentGo.transform)
-                    Undo.SetTransformParent(go.transform, parentGo.transform, "JSON Scenes: Reparent");
+                    go.transform.SetParent(parentGo.transform, false);
             }
             else if (go.transform.parent != null)
             {
-                Undo.SetTransformParent(go.transform, null, "JSON Scenes: Unparent");
+                go.transform.SetParent(null, false);
             }
 
             int siblingIndex = data.Value<int?>("siblingIndex") ?? -1;

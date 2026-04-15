@@ -29,6 +29,16 @@
 | E9 | Delete object | JSON file deleted | PASSED | |
 | E10 | Drag-reorder siblings in hierarchy | JSON `siblingIndex` updated for affected objects | PASSED | |
 
+## Undo Consistency
+
+| # | Action | Expected | Status | Notes |
+|---|---|---|---|---|
+| U1 | Hot-reload adds a component via JSON, then Ctrl+Z | Component removed from object; JSON updated to match | BY DESIGN | Hot-reload changes are not user actions and do not participate in undo |
+| U2 | Hot-reload removes a component via JSON, then Ctrl+Z | Component restored on object; JSON updated to match | BY DESIGN | Hot-reload changes are not user actions and do not participate in undo |
+| U3 | Hot-reload changes a transform via JSON, then Ctrl+Z | Transform reverts; JSON written back with old value via write pipeline | PASSED | Unity auto-records transform property writes; write pipeline catches the revert via ObjectChangeEvents |
+| U4 | Hot-reload reparents via JSON, then Ctrl+Z | Parent reverts; JSON written back with old parentUuid | BY DESIGN | `SetParent` is not auto-recorded by Unity; hot-reload reparents don't participate in undo — scene and JSON remain in sync at the new state |
+| U5 | Hot-reload changes siblingIndex via JSON, then Ctrl+Z | Sibling order reverts; JSON written back | BY DESIGN | `SetSiblingIndex` is not auto-recorded by Unity; same as U4 |
+
 ## Scene Lifecycle
 
 | # | Action | Expected | Status | Notes |
