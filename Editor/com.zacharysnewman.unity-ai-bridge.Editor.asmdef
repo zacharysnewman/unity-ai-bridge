@@ -1,8 +1,8 @@
 {
-  "name": "com.zacharysnewman.json-scenes-for-unity.Editor",
-  "rootNamespace": "JsonScenesForUnity.Editor",
+  "name": "com.zacharysnewman.unity-ai-bridge.Editor",
+  "rootNamespace": "UnityAIBridge.Editor",
   "references": [
-    "com.zacharysnewman.json-scenes-for-unity.Runtime",
+    "com.zacharysnewman.unity-ai-bridge.Runtime",
     "Newtonsoft.Json"
   ],
   "includePlatforms": [

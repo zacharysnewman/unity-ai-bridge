@@ -6,9 +6,9 @@ using System.Threading;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using JsonScenesForUnity;
+using UnityAIBridge;
 
-namespace JsonScenesForUnity.Editor
+namespace UnityAIBridge.Editor
 {
     /// <summary>
     /// Drives the Unity→JSON write pipeline (300 ms debounce).
@@ -234,7 +234,7 @@ namespace JsonScenesForUnity.Editor
                 var registeredGo = manager.GetByUUID(sync.uuid);
                 if (registeredGo == go)
                 {
-                    Debug.Log($"[JsonScenes] CreateEvent: '{go.name}' already registered, skipping");
+                    Debug.Log($"[UnityAIBridge] CreateEvent: '{go.name}' already registered, skipping");
                     return;
                 }
 
@@ -242,11 +242,11 @@ namespace JsonScenesForUnity.Editor
                 {
                     string oldUuid = sync.uuid;
                     sync.uuid = System.Guid.NewGuid().ToString();
-                    Debug.Log($"[JsonScenes] CreateEvent: DUPLICATE '{go.name}' (was uuid={oldUuid}) — assigning new uuid={sync.uuid}");
+                    Debug.Log($"[UnityAIBridge] CreateEvent: DUPLICATE '{go.name}' (was uuid={oldUuid}) — assigning new uuid={sync.uuid}");
                 }
                 else
                 {
-                    Debug.Log($"[JsonScenes] CreateEvent: '{go.name}' has EntitySync but unregistered — re-registering uuid={sync.uuid}");
+                    Debug.Log($"[UnityAIBridge] CreateEvent: '{go.name}' has EntitySync but unregistered — re-registering uuid={sync.uuid}");
                 }
 
                 manager.Register(sync.uuid, go);
@@ -260,7 +260,7 @@ namespace JsonScenesForUnity.Editor
             // Brand new object — attach EntitySync, assign UUID, register, write JSON.
             sync = go.AddComponent<EntitySync>();
             sync.uuid = System.Guid.NewGuid().ToString();
-            Debug.Log($"[JsonScenes] CreateEvent: NEW '{go.name}' — assigned uuid={sync.uuid}");
+            Debug.Log($"[UnityAIBridge] CreateEvent: NEW '{go.name}' — assigned uuid={sync.uuid}");
             manager.Register(sync.uuid, go);
 
             if (Directory.Exists(entitiesDir))
@@ -295,7 +295,7 @@ namespace JsonScenesForUnity.Editor
 
             if (toRemove.Count == 0)
             {
-                Debug.Log("[JsonScenes] PruneDestroyed: no destroyed entities found in registry");
+                Debug.Log("[UnityAIBridge] PruneDestroyed: no destroyed entities found in registry");
                 return;
             }
 
@@ -306,7 +306,7 @@ namespace JsonScenesForUnity.Editor
                 if (fileExisted)
                     File.Delete(filePath);
                 manager.Unregister(uuid);
-                Debug.Log($"[JsonScenes] PruneDestroyed: uuid={uuid} — removed from registry, json deleted={fileExisted}");
+                Debug.Log($"[UnityAIBridge] PruneDestroyed: uuid={uuid} — removed from registry, json deleted={fileExisted}");
             }
         }
 
@@ -368,7 +368,7 @@ namespace JsonScenesForUnity.Editor
         /// Removes all EntitySync components and the SceneDataManager from the scene,
         /// leaving the GameObjects intact. Does not delete any JSON files.
         /// </summary>
-        [MenuItem("JSON Scenes/Clean Scene")]
+        [MenuItem("Unity AI Bridge/Clean Scene")]
         public static void CleanScene()
         {
             if (!EditorUtility.DisplayDialog(
@@ -392,7 +392,7 @@ namespace JsonScenesForUnity.Editor
 
             StopWatcher();
 
-            Debug.Log($"[JsonScenes] Clean Scene: removed {removedSyncs} EntitySync component(s) and SceneDataManager.");
+            Debug.Log($"[UnityAIBridge] Clean Scene: removed {removedSyncs} EntitySync component(s) and SceneDataManager.");
         }
 
         /// <summary>
@@ -403,7 +403,7 @@ namespace JsonScenesForUnity.Editor
         /// The scene must be saved before initialization — sceneDataPath is derived
         /// from the scene file path automatically.
         /// </summary>
-        [MenuItem("JSON Scenes/Initialize Scene")]
+        [MenuItem("Unity AI Bridge/Initialize Scene")]
         public static void InitializeScene()
         {
             var activeScene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
@@ -431,13 +431,13 @@ namespace JsonScenesForUnity.Editor
         /// <summary>
         /// Manually triggers a full scene reload. Can be called from menu items or tests.
         /// </summary>
-        [MenuItem("JSON Scenes/Force Reload Scene")]
+        [MenuItem("Unity AI Bridge/Force Reload Scene")]
         public static void ForceReloadScene()
         {
             var manager = SceneDataManager.Instance;
             if (manager == null)
             {
-                Debug.LogWarning("[JsonScenes] No SceneDataManager found in the active scene.");
+                Debug.LogWarning("[UnityAIBridge] No SceneDataManager found in the active scene.");
                 return;
             }
             AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
@@ -447,25 +447,25 @@ namespace JsonScenesForUnity.Editor
         /// <summary>
         /// Validates the current scene and logs the result.
         /// </summary>
-        [MenuItem("JSON Scenes/Validate Scene")]
+        [MenuItem("Unity AI Bridge/Validate Scene")]
         public static void ValidateSceneMenu()
         {
             var manager = SceneDataManager.Instance;
             if (manager == null)
             {
-                Debug.LogWarning("[JsonScenes] No SceneDataManager found in the active scene.");
+                Debug.LogWarning("[UnityAIBridge] No SceneDataManager found in the active scene.");
                 return;
             }
 
             var result = SceneIO.ValidateScene(manager.sceneDataPath);
             if (result.valid)
             {
-                Debug.Log("[JsonScenes] Scene validation passed — no errors.");
+                Debug.Log("[UnityAIBridge] Scene validation passed — no errors.");
             }
             else
             {
                 foreach (var error in result.errors)
-                    Debug.LogError($"[JsonScenes] Validation error [{error.uuid}] {error.field}: {error.message}");
+                    Debug.LogError($"[UnityAIBridge] Validation error [{error.uuid}] {error.field}: {error.message}");
             }
         }
     }

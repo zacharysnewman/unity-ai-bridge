@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace JsonScenesForUnity
+namespace UnityAIBridge
 {
     /// <summary>
     /// The only serialized (non-DontSave) object in the shell .unity scene file.
@@ -10,7 +10,7 @@ namespace JsonScenesForUnity
     /// Each additively-loaded scene has its own SceneDataManager instance.
     /// </summary>
     [ExecuteAlways]
-    [AddComponentMenu("JSON Scenes/Scene Data Manager")]
+    [AddComponentMenu("Unity AI Bridge/Scene Data Manager")]
     public class SceneDataManager : MonoBehaviour
     {
         /// <summary>

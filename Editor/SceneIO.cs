@@ -8,9 +8,9 @@ using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using JsonScenesForUnity;
+using UnityAIBridge;
 
-namespace JsonScenesForUnity.Editor
+namespace UnityAIBridge.Editor
 {
     /// <summary>
     /// Serialization engine. Handles all JSON read/write for entity files and the manifest.
@@ -69,7 +69,7 @@ namespace JsonScenesForUnity.Editor
                 string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
                 if (!File.Exists(manifestPath))
                 {
-                    Debug.LogError($"[JsonScenes] manifest.json not found at {manifestPath}");
+                    Debug.LogError($"[UnityAIBridge] manifest.json not found at {manifestPath}");
                     yield break;
                 }
 
@@ -77,14 +77,14 @@ namespace JsonScenesForUnity.Editor
                 int schemaVersion = manifest.Value<int>("schemaVersion");
                 if (schemaVersion != ExpectedSchemaVersion)
                 {
-                    Debug.LogError($"[JsonScenes] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
+                    Debug.LogError($"[UnityAIBridge] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
                     yield break;
                 }
 
                 string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
                 if (!Directory.Exists(entitiesDir))
                 {
-                    Debug.LogWarning($"[JsonScenes] Entities directory not found: {entitiesDir}");
+                    Debug.LogWarning($"[UnityAIBridge] Entities directory not found: {entitiesDir}");
                     yield break;
                 }
 
@@ -92,11 +92,11 @@ namespace JsonScenesForUnity.Editor
                 var entityData = new List<(string uuid, JObject data, GameObject go)>();
 
                 // PASS 1 – Instantiate
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Instantiating entities…", 0f);
+                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Instantiating entities…", 0f);
                 for (int i = 0; i < entityFiles.Length; i++)
                 {
                     string path = entityFiles[i];
-                    EditorUtility.DisplayProgressBar("JSON Scenes", $"Instantiating {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", $"Instantiating {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
 
                     bool parseSuccess = false;
                     JObject data = null;
@@ -107,7 +107,7 @@ namespace JsonScenesForUnity.Editor
                     }
                     catch
                     {
-                        Debug.LogWarning($"[JsonScenes] Failed to parse {path}. Skipping.");
+                        Debug.LogWarning($"[UnityAIBridge] Failed to parse {path}. Skipping.");
                     }
 
                     if (!parseSuccess)
@@ -131,7 +131,7 @@ namespace JsonScenesForUnity.Editor
                 }
 
                 // PASS 2 – Wire Hierarchy
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring hierarchy…", 0.33f);
+                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring hierarchy…", 0.33f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
                     var (uuid, data, go) = entityData[i];
@@ -141,7 +141,7 @@ namespace JsonScenesForUnity.Editor
                         GameObject parentGo = manager.GetByUUID(parentUuid);
                         if (parentGo != null) go.transform.SetParent(parentGo.transform, false);
                     }
-                    EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
                 }
 
                 // PASS 2b – Apply sibling indices
@@ -155,18 +155,18 @@ namespace JsonScenesForUnity.Editor
                 }
 
                 // PASS 3 – Apply Transforms & Data
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…", 0.66f);
+                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Applying data…", 0.66f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
                     var (uuid, data, go) = entityData[i];
                     ApplyTransform(go, data["transform"] as JObject);
                     ReconcileComponents(go, data["customData"] as JArray);
-                    EditorUtility.DisplayProgressBar("JSON Scenes", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
                 }
 
                 // Mark scene dirty so Unity saves the newly instantiated persistent entities.
                 EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-                Debug.Log($"[JsonScenes] Bootstrap complete — {entityData.Count} entities loaded.");
+                Debug.Log($"[UnityAIBridge] Bootstrap complete — {entityData.Count} entities loaded.");
             }
             finally
             {
@@ -199,7 +199,7 @@ namespace JsonScenesForUnity.Editor
                 string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
                 if (!File.Exists(manifestPath))
                 {
-                    Debug.LogError($"[JsonScenes] manifest.json not found at {manifestPath}");
+                    Debug.LogError($"[UnityAIBridge] manifest.json not found at {manifestPath}");
                     yield break;
                 }
 
@@ -207,7 +207,7 @@ namespace JsonScenesForUnity.Editor
                 int schemaVersion = manifest.Value<int>("schemaVersion");
                 if (schemaVersion != ExpectedSchemaVersion)
                 {
-                    Debug.LogError($"[JsonScenes] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
+                    Debug.LogError($"[UnityAIBridge] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
                     yield break;
                 }
 
@@ -218,15 +218,15 @@ namespace JsonScenesForUnity.Editor
                 var entityData = new List<(string uuid, JObject data, GameObject go)>();
 
                 // PASS 1 – Update existing or spawn missing
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Reconciling entities…", 0f);
+                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Reconciling entities…", 0f);
                 for (int i = 0; i < entityFiles.Length; i++)
                 {
                     string path = entityFiles[i];
-                    EditorUtility.DisplayProgressBar("JSON Scenes", $"Reconciling {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", $"Reconciling {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
 
                     JObject data = null;
                     try { data = JObject.Parse(File.ReadAllText(path)); }
-                    catch { Debug.LogWarning($"[JsonScenes] Failed to parse {path}. Skipping."); }
+                    catch { Debug.LogWarning($"[UnityAIBridge] Failed to parse {path}. Skipping."); }
 
                     if (data == null) { yield return null; continue; }
 
@@ -260,7 +260,7 @@ namespace JsonScenesForUnity.Editor
                 }
 
                 // PASS 2 – Wire hierarchy
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring hierarchy…", 0.33f);
+                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring hierarchy…", 0.33f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
                     var (uuid, data, go) = entityData[i];
@@ -275,7 +275,7 @@ namespace JsonScenesForUnity.Editor
                     {
                         go.transform.SetParent(null, false);
                     }
-                    EditorUtility.DisplayProgressBar("JSON Scenes", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
                 }
 
                 // PASS 2b – Apply sibling indices
@@ -288,20 +288,20 @@ namespace JsonScenesForUnity.Editor
                 }
 
                 // PASS 3 – Apply transforms & customData
-                EditorUtility.DisplayProgressBar("JSON Scenes", "Applying data…", 0.66f);
+                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Applying data…", 0.66f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
                     var (uuid, data, go) = entityData[i];
                     ApplyTransform(go, data["transform"] as JObject);
                     ReconcileComponents(go, data["customData"] as JArray);
-                    EditorUtility.DisplayProgressBar("JSON Scenes", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
                 }
 
                 // Prune scene objects that have no backing JSON file
                 PruneOrphanEntities(manager);
 
                 EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-                Debug.Log($"[JsonScenes] Reconcile complete — {entityData.Count} entities.");
+                Debug.Log($"[UnityAIBridge] Reconcile complete — {entityData.Count} entities.");
             }
             finally
             {
@@ -338,7 +338,7 @@ namespace JsonScenesForUnity.Editor
                 }
                 else
                 {
-                    Debug.LogWarning($"[JsonScenes] Unknown primitive type: {prefabPath}");
+                    Debug.LogWarning($"[UnityAIBridge] Unknown primitive type: {prefabPath}");
                     go = new GameObject();
                 }
             }
@@ -347,7 +347,7 @@ namespace JsonScenesForUnity.Editor
                 var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
                 if (prefab == null)
                 {
-                    Debug.LogWarning($"[JsonScenes] Prefab not found at {prefabPath}. Creating empty object.");
+                    Debug.LogWarning($"[UnityAIBridge] Prefab not found at {prefabPath}. Creating empty object.");
                     go = new GameObject();
                 }
                 else
@@ -449,7 +449,7 @@ namespace JsonScenesForUnity.Editor
                 Type componentType = ResolveType(typeName);
                 if (componentType == null)
                 {
-                    Debug.LogWarning($"[JsonScenes] Component type not found: {typeName}");
+                    Debug.LogWarning($"[UnityAIBridge] Component type not found: {typeName}");
                     continue;
                 }
 
@@ -485,7 +485,7 @@ namespace JsonScenesForUnity.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[JsonScenes] Failed to set field {prop.Key} on {type.Name}: {e.Message}");
+                    Debug.LogWarning($"[UnityAIBridge] Failed to set field {prop.Key} on {type.Name}: {e.Message}");
                 }
             }
         }
@@ -638,7 +638,7 @@ namespace JsonScenesForUnity.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[JsonScenes] Failed to serialize field {field.Name} on {type.Name}: {e.Message}");
+                    Debug.LogWarning($"[UnityAIBridge] Failed to serialize field {field.Name} on {type.Name}: {e.Message}");
                 }
             }
         }
@@ -660,7 +660,7 @@ namespace JsonScenesForUnity.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[JsonScenes] Hot-reload parse error for {filePath}: {e.Message}");
+                Debug.LogWarning($"[UnityAIBridge] Hot-reload parse error for {filePath}: {e.Message}");
                 return;
             }
 
@@ -684,12 +684,12 @@ namespace JsonScenesForUnity.Editor
 
                 if (go != null)
                 {
-                    Debug.Log($"[JsonScenes] HotReload: uuid={uuid} not in registry but found in scene — re-registering '{go.name}'");
+                    Debug.Log($"[UnityAIBridge] HotReload: uuid={uuid} not in registry but found in scene — re-registering '{go.name}'");
                     manager.Register(uuid, go);
                 }
                 else
                 {
-                    Debug.Log($"[JsonScenes] HotReload: uuid={uuid} not in registry or scene — SPAWNING new object '{data.Value<string>("name")}'");
+                    Debug.Log($"[UnityAIBridge] HotReload: uuid={uuid} not in registry or scene — SPAWNING new object '{data.Value<string>("name")}'");
                     go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
                     if (go == null) return;
                     manager.Register(uuid, go);
@@ -698,7 +698,7 @@ namespace JsonScenesForUnity.Editor
             }
             else
             {
-                Debug.Log($"[JsonScenes] HotReload: uuid={uuid} found in registry — UPDATING '{go.name}'");
+                Debug.Log($"[UnityAIBridge] HotReload: uuid={uuid} found in registry — UPDATING '{go.name}'");
             }
 
             string newName = data.Value<string>("name");
@@ -740,13 +740,13 @@ namespace JsonScenesForUnity.Editor
             GameObject go = manager.GetByUUID(uuid);
             if (go != null)
             {
-                Debug.Log($"[JsonScenes] DestroyEntity: uuid={uuid} — destroying '{go.name}'");
+                Debug.Log($"[UnityAIBridge] DestroyEntity: uuid={uuid} — destroying '{go.name}'");
                 manager.Unregister(uuid);
                 UnityEngine.Object.DestroyImmediate(go);
             }
             else
             {
-                Debug.Log($"[JsonScenes] DestroyEntity: uuid={uuid} — not in registry, nothing to destroy");
+                Debug.Log($"[UnityAIBridge] DestroyEntity: uuid={uuid} — not in registry, nothing to destroy");
             }
         }
 
@@ -828,7 +828,7 @@ namespace JsonScenesForUnity.Editor
             string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
             if (!Directory.Exists(entitiesDir))
             {
-                Debug.LogError($"[JsonScenes] Entities directory not found: {entitiesDir}. Run Setup first.");
+                Debug.LogError($"[UnityAIBridge] Entities directory not found: {entitiesDir}. Run Setup first.");
                 return;
             }
 
@@ -873,7 +873,7 @@ namespace JsonScenesForUnity.Editor
             }
 
             EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-            Debug.Log($"[JsonScenes] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written.");
+            Debug.Log($"[UnityAIBridge] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written.");
         }
 
         private static void CollectHierarchy(GameObject go, List<GameObject> result)
@@ -915,7 +915,7 @@ namespace JsonScenesForUnity.Editor
             // Rebuild registry to clear stale entries for children destroyed above.
             RebuildRegistry(manager);
 
-            Debug.Log($"[JsonScenes] Pruned {orphans.Count} orphan entit{(orphans.Count == 1 ? "y" : "ies")} with no backing JSON file.");
+            Debug.Log($"[UnityAIBridge] Pruned {orphans.Count} orphan entit{(orphans.Count == 1 ? "y" : "ies")} with no backing JSON file.");
         }
 
         // ─── Validation ───────────────────────────────────────────────────────────

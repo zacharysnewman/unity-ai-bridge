@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace JsonScenesForUnity
+namespace UnityAIBridge
 {
     /// <summary>
     /// Attached dynamically to every spawned GameObject.

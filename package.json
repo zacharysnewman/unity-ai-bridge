@@ -1,11 +1,12 @@
 {
-  "name": "com.zacharysnewman.json-scenes-for-unity",
-  "displayName": "JSON Scenes for Unity",
+  "name": "com.zacharysnewman.unity-ai-bridge",
+  "displayName": "Unity AI Bridge",
   "version": "1.0.0",
   "unity": "6000.0",
-  "description": "Live-sync, text-based JSON scene format for Unity. Replaces binary .unity serialization with human- and AI-readable per-entity JSON files, bidirectionally synced with the Unity Editor via FileSystemWatcher.",
+  "description": "Bidirectional live sync between Unity Editor objects and human- and AI-readable JSON files on disk. Changes in the Editor write to JSON within 300ms; changes to JSON are reflected in Unity instantly via FileSystemWatcher.",
   "author": {
-    "name": "Zachary Newman"
+    "name": "zacharysnewman",
+    "url": "https://github.com/zacharysnewman"
   },
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.1"

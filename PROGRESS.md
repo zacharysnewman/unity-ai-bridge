@@ -11,7 +11,7 @@ All core package components implemented. Three additional gaps patched based on 
 ### 1. Package Structure & Assembly Definitions
 **Files:** `package.json`, `Runtime/*.asmdef`, `Editor/*.asmdef`
 
-- UPM package manifest (`com.zacharysnewman.json-scenes-for-unity` v1.0.0)
+- UPM package manifest (`com.zacharysnewman.unity-ai-bridge` v1.0.0)
 - Runtime assembly definition (safe for player builds)
 - Editor assembly definition (editor-only, references Runtime + Newtonsoft.Json)
 - Dependency: `com.unity.nuget.newtonsoft-json`
@@ -89,7 +89,7 @@ Full serialization engine:
 - **Write pipeline**: `ObjectChangeEvents.changesPublished` integration for property changes, hierarchy changes, transform parenting, create, and destroy events
 - **Debounce**: 300 ms timer per UUID; only final state at expiry is written
 - **Play Mode**: suspends write pipeline and watcher on `ExitingEditMode`; re-bootstraps and restarts watcher on `EnteredEditMode`
-- **Menu items**: `JSON Scenes/Force Reload Scene` and `JSON Scenes/Validate Scene`
+- **Menu items**: `Unity AI Bridge/Force Reload Scene` and `Unity AI Bridge/Validate Scene`
 - `EditorCoroutineRunner`: minimal in-package editor coroutine runner (no external dependency)
 
 ---
@@ -122,7 +122,7 @@ Full serialization engine:
 ### 12. Setup Editor Window
 **File:** `Editor/SceneDataManagerWindow.cs`
 
-Minimal setup UI accessible via `JSON Scenes → Setup Window`:
+Minimal setup UI accessible via `Unity AI Bridge → Setup Window`:
 - **Manager section**: detects whether `SceneDataManager` exists in the scene; shows `sceneDataPath` field with live validation (directory/manifest checks); buttons to create `SceneDataManager`, directory structure, and `manifest.json` automatically
 - **Actions section**: Force Reload Scene and Validate Scene buttons (delegates to existing `LiveSyncController` menu items)
 
@@ -189,17 +189,17 @@ Minimal setup UI accessible via `JSON Scenes → Setup Window`:
 ## File Tree
 
 ```
-com.zacharysnewman.json-scenes-for-unity/
+com.zacharysnewman.unity-ai-bridge/
 ├── package.json
 ├── SPEC.md
 ├── PROGRESS.md
 ├── Runtime/
-│   ├── com.zacharysnewman.json-scenes-for-unity.Runtime.asmdef
+│   ├── com.zacharysnewman.unity-ai-bridge.Runtime.asmdef
 │   ├── SceneDataManager.cs
 │   ├── EntitySync.cs
 │   └── EntityReference.cs
 ├── Editor/
-│   ├── com.zacharysnewman.json-scenes-for-unity.Editor.asmdef
+│   ├── com.zacharysnewman.unity-ai-bridge.Editor.asmdef
 │   ├── LiveSyncController.cs
 │   ├── SceneIO.cs
 │   └── EntityAssetPostprocessor.cs

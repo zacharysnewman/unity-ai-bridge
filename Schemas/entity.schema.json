@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "entity.schema.json",
-  "title": "JSON Scenes for Unity — Entity",
+  "title": "Unity AI Bridge — Entity",
   "description": "Schema for a single entity file inside Assets/SceneData/<SceneName>/Entities/",
   "type": "object",
   "required": ["uuid", "name", "prefabPath", "transform"],

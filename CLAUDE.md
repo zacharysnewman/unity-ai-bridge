@@ -1,4 +1,4 @@
-# JSON Scenes for Unity — Claude Code Guide
+# Unity AI Bridge — Claude Code Guide
 
 This package implements a **bidirectional sync** between JSON files on disk and a Unity scene.
 Both representations are always kept in perfect sync — changes can originate from either side.
@@ -219,7 +219,7 @@ Delete the JSON file. Unity destroys the corresponding `GameObject` automaticall
 
 ## Triggering Validation
 
-To validate the scene (checks prefab paths, parent UUIDs, component type resolution), use `JSON Scenes → Validate Scene` from the Unity menu.
+To validate the scene (checks prefab paths, parent UUIDs, component type resolution), use `Unity AI Bridge → Validate Scene` from the Unity menu.
 
 ---
 
@@ -232,11 +232,11 @@ To enable inline schema validation for entity and manifest files, add this to yo
   "json.schemas": [
     {
       "fileMatch": ["**/Entities/*.json"],
-      "url": "./Packages/com.zacharysnewman.json-scenes-for-unity/Schemas/entity.schema.json"
+      "url": "./Packages/com.zacharysnewman.unity-ai-bridge/Schemas/entity.schema.json"
     },
     {
       "fileMatch": ["**/SceneData/**/manifest.json"],
-      "url": "./Packages/com.zacharysnewman.json-scenes-for-unity/Schemas/manifest.schema.json"
+      "url": "./Packages/com.zacharysnewman.unity-ai-bridge/Schemas/manifest.schema.json"
     }
   ]
 }

@@ -1,4 +1,4 @@
-# JSON Scenes for Unity
+# Unity AI Bridge
 
 A live-sync, text-based scene format for Unity. Replaces binary `.unity` scene serialization with human- and AI-readable per-entity JSON files, bidirectionally synced with the Unity Editor in real time.
 
@@ -18,7 +18,7 @@ A live-sync, text-based scene format for Unity. Replaces binary `.unity` scene s
 In Unity: **Window → Package Manager → + → Add package from git URL**
 
 ```
-https://github.com/zacharysnewman/json-scenes-for-unity.git
+https://github.com/zacharysnewman/unity-ai-bridge.git
 ```
 
 This also installs the required `com.unity.nuget.newtonsoft-json` dependency.
@@ -32,13 +32,13 @@ This also installs the required `com.unity.nuget.newtonsoft-json` dependency.
 1. Create a new empty Unity scene (this will be the only `.unity` file you ever save)
 2. Add an empty GameObject, name it `SceneDataManager`
 3. Add the **Scene Data Manager** component to it
-4. Open **JSON Scenes → Setup Window** and set the **Scene Data Path**, e.g. `Assets/SceneData/Level_01`
+4. Open **Unity AI Bridge → Setup Window** and set the **Scene Data Path**, e.g. `Assets/SceneData/Level_01`
 5. Click **Create Directory Structure** — this creates the `Entities/` directory and `manifest.json` automatically
 6. Save the scene (`Ctrl+S`) — this is the only time you need to save it
 
 ### 2. Verify
 
-Open **JSON Scenes → Setup Window**. The panel should show:
+Open **Unity AI Bridge → Setup Window**. The panel should show:
 
 - A green info box confirming the scene data directory is ready
 - No warnings about missing `SceneDataManager` or `manifest.json`
@@ -101,8 +101,8 @@ var go = SceneDataManager.Instance.GetByUUID(doorTarget.targetUUID);
 | **Duplicate (Ctrl+D)** | Postprocessor detects UUID mismatch, assigns a fresh UUID |
 | **Edit a file externally** | `FileSystemWatcher` picks up the change and hot-reloads the entity |
 | **Git checkout** | FSW detects all changed files and snaps the scene to the restored state |
-| **Force reload** | `JSON Scenes → Force Reload Scene` |
-| **Validate** | `JSON Scenes → Validate Scene` |
+| **Force reload** | `Unity AI Bridge → Force Reload Scene` |
+| **Validate** | `Unity AI Bridge → Validate Scene` |
 
 ---
 
@@ -123,6 +123,6 @@ On **Enter Play Mode** all managed entities (flagged `DontSave`) are destroyed. 
 ## Known Limitations
 
 - **Undo/Redo** — expected to work via `ObjectChangeEvents`, but unverified in practice. Test early and file an issue if Undo doesn't write back to disk correctly.
-- **macOS FileSystemWatcher** — the custom watcher that detects JSON file changes (not Unity's own script hot-reload) can occasionally miss events on macOS. Use `JSON Scenes → Force Reload Scene` as a recovery tool if a JSON edit doesn't appear to have applied.
+- **macOS FileSystemWatcher** — the custom watcher that detects JSON file changes (not Unity's own script hot-reload) can occasionally miss events on macOS. Use `Unity AI Bridge → Force Reload Scene` as a recovery tool if a JSON edit doesn't appear to have applied.
 - **Same-type multi-component reordering** — if two components of the same type on one object are reordered via the Inspector, `customData` indices will map incorrectly on the next load.
 - **Built-in components** — only custom `MonoBehaviour` fields are serialized. Built-in components (Collider, Rigidbody, etc.) derive their state from the source prefab.

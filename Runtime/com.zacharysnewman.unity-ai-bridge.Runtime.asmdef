@@ -1,6 +1,6 @@
 {
-  "name": "com.zacharysnewman.json-scenes-for-unity.Runtime",
-  "rootNamespace": "JsonScenesForUnity",
+  "name": "com.zacharysnewman.unity-ai-bridge.Runtime",
+  "rootNamespace": "UnityAIBridge",
   "references": [],
   "includePlatforms": [],
   "excludePlatforms": [],

@@ -1,6 +1,6 @@
 # JSON Prefabs for Unity — Bidirectional Sync Plan
 
-This document describes how to extend the JSON Scenes bidirectional sync system to cover **Unity Prefab assets**.
+This document describes how to extend the Unity AI Bridge bidirectional sync system to cover **Unity Prefab assets**.
 The design mirrors the scene sync architecture as closely as possible, adapting only where prefabs fundamentally differ from scenes.
 
 ---
@@ -266,7 +266,7 @@ Mirrors `EntityAssetPostprocessor.cs`, but serves two purposes:
 
 Mirrors `SceneDataManagerWindow.cs`. Key features:
 
-- Menu item: `JSON Scenes → Prefab Sync → Setup Window`
+- Menu item: `Unity AI Bridge → Prefab Sync → Setup Window`
 - List of currently tracked prefabs (path, data directory)
 - "Track Prefab" button — accepts a `.prefab` asset path, creates the `PrefabData/<Name>/` directory and `manifest.json`, runs `BootstrapPrefab`
 - "Untrack Prefab" button — removes from registry (does not delete JSON files)
@@ -402,11 +402,11 @@ Add to `.vscode/settings.json` in the Unity project:
   "json.schemas": [
     {
       "fileMatch": ["**/PrefabData/**/Nodes/*.json"],
-      "url": "./Packages/com.zacharysnewman.json-scenes-for-unity/Schemas/prefab-node.schema.json"
+      "url": "./Packages/com.zacharysnewman.unity-ai-bridge/Schemas/prefab-node.schema.json"
     },
     {
       "fileMatch": ["**/PrefabData/**/manifest.json"],
-      "url": "./Packages/com.zacharysnewman.json-scenes-for-unity/Schemas/prefab-manifest.schema.json"
+      "url": "./Packages/com.zacharysnewman.unity-ai-bridge/Schemas/prefab-manifest.schema.json"
     }
   ]
 }

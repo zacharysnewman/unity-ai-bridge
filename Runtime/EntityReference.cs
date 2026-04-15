@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace JsonScenesForUnity
+namespace UnityAIBridge
 {
     /// <summary>
     /// UUID-based reference to another entity in the scene.

@@ -1,6 +1,6 @@
 # Unity Live-Sync JSON Scene Architecture — Specification
 
-**Package:** `com.zacharysnewman.json-scenes-for-unity` (Unity Package Manager)
+**Package:** `com.zacharysnewman.unity-ai-bridge` (Unity Package Manager)
 **Minimum Unity Version:** Unity 6 (6000.x) and later
 **JSON Library:** Newtonsoft.Json
 
@@ -398,7 +398,7 @@ The `manifest.json` `schemaVersion` integer is incremented for any breaking chan
 This system is distributed as a **Unity Package Manager (UPM) package**, importable into any Unity 6+ project.
 
 ```
-com.zacharysnewman.json-scenes-for-unity/
+com.zacharysnewman.unity-ai-bridge/
 ├── package.json                        # UPM manifest
 ├── Runtime/
 │   ├── SceneDataManager.cs
@@ -417,8 +417,8 @@ com.zacharysnewman.json-scenes-for-unity/
 - **Editor assembly** (`Editor/`): `LiveSyncController` and `SceneIO` — stripped from player builds automatically.
 - **Dependency**: Newtonsoft.Json (via Unity's `com.unity.nuget.newtonsoft-json` package).
 - **Distribution**: Via **Git URL** in Unity Package Manager. Users add the package by pointing UPM at the GitHub repository URL. No Asset Store or OpenUPM registry required.
-- **Package name**: `com.zacharysnewman.json-scenes-for-unity`
-- **Display name**: JSON Scenes for Unity
+- **Package name**: `com.zacharysnewman.unity-ai-bridge`
+- **Display name**: Unity AI Bridge
 - **Initial version**: 1.0.0
 
 ---
@@ -428,7 +428,7 @@ com.zacharysnewman.json-scenes-for-unity/
 Two validation mechanisms are planned:
 
 1. **JSON Schema file** (`entity.schema.json`, `manifest.schema.json`) — AI tools and editors (VS Code, etc.) can use these to validate files before writing to disk, catching type errors and missing required fields without running Unity.
-2. **Unity-side validator** — validates that all entity files can actually be loaded (prefab paths resolve, parent UUIDs exist, component types are found via reflection). Triggered via `JSON Scenes → Validate Scene` or by writing `Commands/validate.json`.
+2. **Unity-side validator** — validates that all entity files can actually be loaded (prefab paths resolve, parent UUIDs exist, component types are found via reflection). Triggered via `Unity AI Bridge → Validate Scene` or by writing `Commands/validate.json`.
 
 ---
 

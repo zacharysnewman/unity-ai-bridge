@@ -4,9 +4,9 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
-using JsonScenesForUnity;
+using UnityAIBridge;
 
-namespace JsonScenesForUnity.Editor
+namespace UnityAIBridge.Editor
 {
     /// <summary>
     /// Primary sync bridge between the Unity asset pipeline and the scene.
@@ -33,18 +33,18 @@ namespace JsonScenesForUnity.Editor
             {
                 if (!IsEntityFile(assetPath)) continue;
 
-                Debug.Log($"[JsonScenes] Postprocessor: imported entity file — {assetPath} | manager={(manager != null ? manager.sceneDataPath : "NULL")}");
+                Debug.Log($"[UnityAIBridge] Postprocessor: imported entity file — {assetPath} | manager={(manager != null ? manager.sceneDataPath : "NULL")}");
 
                 bool valid = EnsureValidUuid(assetPath);
                 if (!valid)
                 {
-                    Debug.Log($"[JsonScenes] Postprocessor: UUID fixed/renamed, skipping hot reload for this pass — {assetPath}");
+                    Debug.Log($"[UnityAIBridge] Postprocessor: UUID fixed/renamed, skipping hot reload for this pass — {assetPath}");
                     continue;
                 }
 
                 if (manager == null)
                 {
-                    Debug.LogWarning($"[JsonScenes] Postprocessor: no SceneDataManager found — cannot hot reload {assetPath}");
+                    Debug.LogWarning($"[UnityAIBridge] Postprocessor: no SceneDataManager found — cannot hot reload {assetPath}");
                     continue;
                 }
 
@@ -55,7 +55,7 @@ namespace JsonScenesForUnity.Editor
             {
                 if (!IsEntityFile(assetPath)) continue;
                 string uuid = Path.GetFileNameWithoutExtension(assetPath);
-                Debug.Log($"[JsonScenes] Postprocessor: deleted entity file — uuid={uuid} | manager={(manager != null ? "found" : "NULL")}");
+                Debug.Log($"[UnityAIBridge] Postprocessor: deleted entity file — uuid={uuid} | manager={(manager != null ? "found" : "NULL")}");
                 if (manager != null)
                     SceneIO.DestroyEntity(uuid, manager);
             }
@@ -88,7 +88,7 @@ namespace JsonScenesForUnity.Editor
             string fullDest = Path.GetFullPath(newDataDir);
             CopyDirectory(fullSource, fullDest);
             AssetDatabase.Refresh();
-            Debug.Log($"[JsonScenes] Duplicated scene data: {sourceDataDir} → {newDataDir}");
+            Debug.Log($"[UnityAIBridge] Duplicated scene data: {sourceDataDir} → {newDataDir}");
         }
 
         /// <summary>
@@ -151,7 +151,7 @@ namespace JsonScenesForUnity.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[JsonScenes] EntityAssetPostprocessor: Failed to parse {assetPath}: {e.Message}");
+                Debug.LogWarning($"[UnityAIBridge] EntityAssetPostprocessor: Failed to parse {assetPath}: {e.Message}");
                 return false;
             }
 
@@ -175,11 +175,11 @@ namespace JsonScenesForUnity.Editor
             {
                 string moveError = AssetDatabase.MoveAsset(assetPath, newAssetPath);
                 if (!string.IsNullOrEmpty(moveError))
-                    Debug.LogWarning($"[JsonScenes] EntityAssetPostprocessor: Failed to rename {assetPath} → {newAssetPath}: {moveError}");
+                    Debug.LogWarning($"[UnityAIBridge] EntityAssetPostprocessor: Failed to rename {assetPath} → {newAssetPath}: {moveError}");
                 else if (missingUuid)
-                    Debug.Log($"[JsonScenes] Assigned UUID {newUuid} to {assetPath}");
+                    Debug.Log($"[UnityAIBridge] Assigned UUID {newUuid} to {assetPath}");
                 else
-                    Debug.Log($"[JsonScenes] Duplicate detected — assigned new UUID {newUuid} (was {existingUuid})");
+                    Debug.Log($"[UnityAIBridge] Duplicate detected — assigned new UUID {newUuid} (was {existingUuid})");
             }
 
             return false; // Renamed — fresh import will handle hot reload

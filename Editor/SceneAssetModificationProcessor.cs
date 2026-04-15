@@ -3,7 +3,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace JsonScenesForUnity.Editor
+namespace UnityAIBridge.Editor
 {
     /// <summary>
     /// Keeps the JSON data directory in sync when a shell .unity scene file is
@@ -49,7 +49,7 @@ namespace JsonScenesForUnity.Editor
                 if (File.Exists(oldMeta))
                     File.Move(oldMeta, newMeta);
 
-                Debug.Log($"[JsonScenes] Scene data directory moved: {oldDataDir} → {newDataDir}");
+                Debug.Log($"[UnityAIBridge] Scene data directory moved: {oldDataDir} → {newDataDir}");
 
                 // Refresh and prune deferred — can't safely call AssetDatabase here.
                 EditorApplication.delayCall += () =>
@@ -60,7 +60,7 @@ namespace JsonScenesForUnity.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[JsonScenes] Failed to move scene data directory: {e.Message}");
+                Debug.LogWarning($"[UnityAIBridge] Failed to move scene data directory: {e.Message}");
             }
 
             // Return DidNotMove — Unity handles the .unity file itself.
@@ -136,7 +136,7 @@ namespace JsonScenesForUnity.Editor
 
                 string parent = Path.GetDirectoryName(folderPath).Replace('\\', '/');
                 AssetDatabase.DeleteAsset(folderPath);
-                Debug.Log($"[JsonScenes] Removed empty SceneData folder: {folderPath}");
+                Debug.Log($"[UnityAIBridge] Removed empty SceneData folder: {folderPath}");
                 folderPath = parent;
             }
         }
