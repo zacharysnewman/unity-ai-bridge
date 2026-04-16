@@ -27,12 +27,11 @@ namespace UnityAIBridge.Editor
             string[] movedAssets,
             string[] movedFromAssetPaths)
         {
-            var manager = SceneDataManager.Instance;
-
             foreach (string assetPath in importedAssets)
             {
                 if (!IsEntityFile(assetPath)) continue;
 
+                var manager = FindManagerForEntityPath(assetPath);
                 Debug.Log($"[UnityAIBridge] Postprocessor: imported entity file — {assetPath} | manager={(manager != null ? manager.sceneDataPath : "NULL")}");
 
                 bool valid = EnsureValidUuid(assetPath);
@@ -44,7 +43,7 @@ namespace UnityAIBridge.Editor
 
                 if (manager == null)
                 {
-                    Debug.LogWarning($"[UnityAIBridge] Postprocessor: no SceneDataManager found — cannot hot reload {assetPath}");
+                    Debug.Log($"[UnityAIBridge] Postprocessor: no matching SceneDataManager for {assetPath} — scene not open, skipping hot reload");
                     continue;
                 }
 
@@ -55,6 +54,7 @@ namespace UnityAIBridge.Editor
             {
                 if (!IsEntityFile(assetPath)) continue;
                 string uuid = Path.GetFileNameWithoutExtension(assetPath);
+                var manager = FindManagerForEntityPath(assetPath);
                 Debug.Log($"[UnityAIBridge] Postprocessor: deleted entity file — uuid={uuid} | manager={(manager != null ? "found" : "NULL")}");
                 if (manager != null)
                     SceneIO.DestroyEntity(uuid, manager);
@@ -123,6 +123,27 @@ namespace UnityAIBridge.Editor
             {
                 CopyDirectory(subDir, Path.Combine(destination, Path.GetFileName(subDir)));
             }
+        }
+
+        /// <summary>
+        /// Returns the SceneDataManager whose sceneDataPath is a prefix of the given
+        /// asset path. Returns null if no open scene owns this file — prevents foreign
+        /// entity files from being hot-reloaded into the wrong scene.
+        /// </summary>
+        private static SceneDataManager FindManagerForEntityPath(string assetPath)
+        {
+            string normalized = assetPath.Replace('\\', '/');
+            var all = UnityEngine.Object.FindObjectsByType<SceneDataManager>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var mgr in all)
+            {
+                string dataPath = mgr.sceneDataPath;
+                if (string.IsNullOrEmpty(dataPath)) continue;
+                string normalizedData = dataPath.Replace('\\', '/');
+                if (normalized.StartsWith(normalizedData + "/", StringComparison.OrdinalIgnoreCase))
+                    return mgr;
+            }
+            return null;
         }
 
         private static bool IsEntityFile(string assetPath)

@@ -356,7 +356,9 @@ Direct `GameObject` or `MonoBehaviour` references are prohibited in synced scrip
 - Use the `EntityReference` struct (wraps a `string targetUUID`) wherever cross-entity references are needed.
 - Resolve at runtime with `SceneDataManager.Instance.GetByUUID(targetUUID)`.
 
-> **Known limitation (multi-scene):** `SceneDataManager.Instance` is a static singleton — it returns the manager that was most recently enabled. In an additively-loaded multi-scene setup, cross-scene `EntityReference` resolution via `Instance` will only search the active scene's registry. To resolve a UUID from a specific scene, hold a direct reference to that scene's `SceneDataManager` and call `GetByUUID` on it directly. UUIDs are only required to be unique within a scene, so two additively-loaded scenes may share UUIDs without registry collision.
+> **Known limitation (multi-scene):** `SceneDataManager.Instance` is a static singleton — it returns the manager that was most recently enabled. In an additively-loaded multi-scene setup, cross-scene `EntityReference` resolution via `Instance` will only search the last-enabled scene's registry. To resolve a UUID from a specific scene, hold a direct reference to that scene's `SceneDataManager` and call `GetByUUID` on it directly. UUIDs are only required to be unique within a scene, so two additively-loaded scenes may share UUIDs without registry collision.
+>
+> Note: JSON→Unity hot reload (file writes) is not affected by this limitation — `EntityAssetPostprocessor` routes each entity file to the correct scene's manager via path-prefix matching, never via `Instance`.
 
 ```csharp
 [Serializable]

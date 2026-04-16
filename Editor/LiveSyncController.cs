@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
 using UnityEngine;
 using UnityAIBridge;
 
@@ -57,7 +58,10 @@ namespace UnityAIBridge.Editor
             // Hook into scene object change events for write pipeline
             ObjectChangeEvents.changesPublished += OnObjectChangesPublished;
 
-            // Bootstrap when domain reloads (scene open / recompile)
+            // Re-bootstrap when the active scene changes (e.g. opening a different scene)
+            EditorSceneManager.activeSceneChangedInEditMode += OnActiveSceneChanged;
+
+            // Bootstrap on first load (domain reload / recompile)
             EditorApplication.delayCall += TryBootstrap;
         }
 
@@ -72,6 +76,14 @@ namespace UnityAIBridge.Editor
         private static void OnAfterAssemblyReload()
         {
             _isReloading = false;
+            EditorApplication.delayCall += TryBootstrap;
+        }
+
+        private static void OnActiveSceneChanged(Scene previous, Scene next)
+        {
+            if (_isPlayMode) return;
+            SceneIO.CancelBootstrap();
+            StopWatcher();
             EditorApplication.delayCall += TryBootstrap;
         }
 

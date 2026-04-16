@@ -129,7 +129,7 @@ When making multiple changes, order matters:
 
 ## UUID Rules
 
-- **Never fabricate or guess a UUID** — always generate one using the system UUID generator:
+- **Never fabricate or guess a UUID** — always generate one by running the system UUID generator via Bash:
   ```bash
   uuidgen | tr '[:upper:]' '[:lower:]'
   ```

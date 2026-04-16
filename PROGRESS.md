@@ -44,7 +44,7 @@ All core package components implemented. Three additional gaps patched based on 
 - Holds `sceneDataPath` (project-relative path to scene data directory)
 - Owns the `Dictionary<string, GameObject>` UUID→GameObject lookup
 - Exposes `Register`, `Unregister`, `ClearRegistry`, `GetByUUID`, `GetAllUUIDs`
-- Static `Instance` accessor for single-scene use; per-instance for additive scenes
+- Static `Instance` accessor for single-scene use; per-instance for additive scenes (note: JSON→Unity hot reload bypasses `Instance` entirely — uses path-prefix matching to find the correct manager per file)
 - Runtime/Editor assembly boundary respected — never references `SceneIO`
 
 ---

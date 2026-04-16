@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityAIBridge;
 
 namespace UnityAIBridge.Editor
@@ -42,6 +43,17 @@ namespace UnityAIBridge.Editor
         /// applies transforms and customData. Displays a Unity progress bar.
         /// </summary>
         private static bool _isBootstrapping = false;
+        private static SceneDataManager _bootstrappingManager = null;
+
+        /// <summary>
+        /// Cancels any in-flight bootstrap. Called by LiveSyncController when the active
+        /// scene changes so the stale coroutine stops and the new scene can bootstrap.
+        /// </summary>
+        public static void CancelBootstrap()
+        {
+            _isBootstrapping = false;
+            _bootstrappingManager = null;
+        }
 
         /// <summary>
         /// Full async bootstrap: reads manifest, instantiates all entities, wires hierarchy,
@@ -52,6 +64,7 @@ namespace UnityAIBridge.Editor
             // 1. THE GUARD: Prevent multiple bootstraps from running at the same time
             if (_isBootstrapping) yield break;
             _isBootstrapping = true;
+            _bootstrappingManager = manager;
 
             if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath))
             {
@@ -65,6 +78,9 @@ namespace UnityAIBridge.Editor
             {
                 // 3. THE CLEANUP: Wipe "DontSave" puppets before spawning
                 ClearExistingEntities(manager);
+
+                // Capture scene before any yields — manager.gameObject may be destroyed mid-coroutine.
+                Scene targetScene = manager.gameObject.scene;
 
                 string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
                 if (!File.Exists(manifestPath))
@@ -120,7 +136,7 @@ namespace UnityAIBridge.Editor
                     if (string.IsNullOrEmpty(uuid)) { yield return null; continue; }
 
                     string prefabPath = data.Value<string>("prefabPath");
-                    GameObject go = InstantiateEntity(uuid, prefabPath, data.Value<string>("name"));
+                    GameObject go = InstantiateEntity(uuid, prefabPath, data.Value<string>("name"), targetScene);
 
                     if (go != null)
                     {
@@ -128,9 +144,11 @@ namespace UnityAIBridge.Editor
                         entityData.Add((uuid, data, go));
                     }
                     yield return null;
+                    if (_bootstrappingManager != manager || manager == null) yield break;
                 }
 
                 // PASS 2 – Wire Hierarchy
+                if (manager == null) yield break;
                 EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring hierarchy…", 0.33f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
@@ -165,7 +183,8 @@ namespace UnityAIBridge.Editor
                 }
 
                 // Mark scene dirty so Unity saves the newly instantiated persistent entities.
-                EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+                if (manager != null && manager.gameObject != null)
+                    EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
                 Debug.Log($"[UnityAIBridge] Bootstrap complete — {entityData.Count} entities loaded.");
             }
             finally
@@ -173,6 +192,7 @@ namespace UnityAIBridge.Editor
                 // 4. THE RESET: Always clear the UI and the lock
                 EditorUtility.ClearProgressBar();
                 _isBootstrapping = false;
+                if (_bootstrappingManager == manager) _bootstrappingManager = null;
             }
         }
 
@@ -187,15 +207,21 @@ namespace UnityAIBridge.Editor
         {
             if (_isBootstrapping) yield break;
             _isBootstrapping = true;
+            _bootstrappingManager = manager;
 
             if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath))
             {
                 _isBootstrapping = false;
+                _bootstrappingManager = null;
                 yield break;
             }
 
             try
             {
+                // Capture the target scene before any yields — manager.gameObject may be
+                // destroyed mid-coroutine if the scene is switched or unloaded.
+                Scene targetScene = manager.gameObject.scene;
+
                 string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
                 if (!File.Exists(manifestPath))
                 {
@@ -250,16 +276,18 @@ namespace UnityAIBridge.Editor
                     }
                     else
                     {
-                        go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
+                        go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"), targetScene);
                         if (go == null) { yield return null; continue; }
                         manager.Register(uuid, go);
                     }
 
                     entityData.Add((uuid, data, go));
                     yield return null;
+                    if (_bootstrappingManager != manager || manager == null) yield break;
                 }
 
                 // PASS 2 – Wire hierarchy
+                if (manager == null) yield break;
                 EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring hierarchy…", 0.33f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
@@ -288,6 +316,7 @@ namespace UnityAIBridge.Editor
                 }
 
                 // PASS 3 – Apply transforms & customData
+                if (manager == null) yield break;
                 EditorUtility.DisplayProgressBar("Unity AI Bridge", "Applying data…", 0.66f);
                 for (int i = 0; i < entityData.Count; i++)
                 {
@@ -300,13 +329,15 @@ namespace UnityAIBridge.Editor
                 // Prune scene objects that have no backing JSON file
                 PruneOrphanEntities(manager);
 
-                EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+                if (manager != null && manager.gameObject != null)
+                    EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
                 Debug.Log($"[UnityAIBridge] Reconcile complete — {entityData.Count} entities.");
             }
             finally
             {
                 EditorUtility.ClearProgressBar();
                 _isBootstrapping = false;
+                if (_bootstrappingManager == manager) _bootstrappingManager = null;
             }
         }
 
@@ -326,7 +357,7 @@ namespace UnityAIBridge.Editor
 
         // ─── Instantiation ────────────────────────────────────────────────────────
 
-        private static GameObject InstantiateEntity(string uuid, string prefabPath, string entityName)
+        private static GameObject InstantiateEntity(string uuid, string prefabPath, string entityName, Scene targetScene = default)
         {
             GameObject go;
 
@@ -362,6 +393,12 @@ namespace UnityAIBridge.Editor
 
             if (!string.IsNullOrEmpty(entityName))
                 go.name = entityName;
+
+            // Ensure the object lands in the correct scene regardless of which scene
+            // is currently active. Without this, a mid-bootstrap scene switch causes
+            // objects to be created in the wrong scene.
+            if (targetScene.IsValid() && go.scene != targetScene)
+                SceneManager.MoveGameObjectToScene(go, targetScene);
 
             var sync = go.AddComponent<EntitySync>();
             sync.uuid = uuid;
@@ -690,7 +727,7 @@ namespace UnityAIBridge.Editor
                 else
                 {
                     Debug.Log($"[UnityAIBridge] HotReload: uuid={uuid} not in registry or scene — SPAWNING new object '{data.Value<string>("name")}'");
-                    go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"));
+                    go = InstantiateEntity(uuid, data.Value<string>("prefabPath"), data.Value<string>("name"), manager.gameObject.scene);
                     if (go == null) return;
                     manager.Register(uuid, go);
                     EditorSceneManager.MarkSceneDirty(go.scene);
@@ -806,7 +843,7 @@ namespace UnityAIBridge.Editor
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
 
             // Migrate all unmanaged scene objects into JSON sync.
-            MigrateScene(manager);
+            EditorCoroutineRunner.StartEditorCoroutine(MigrateScene(manager));
         }
 
         // ─── Scene migration ──────────────────────────────────────────────────────
@@ -821,15 +858,15 @@ namespace UnityAIBridge.Editor
         ///
         /// Idempotent: running twice leaves the scene and JSON files unchanged.
         /// </summary>
-        public static void MigrateScene(SceneDataManager manager)
+        public static IEnumerator MigrateScene(SceneDataManager manager)
         {
-            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) return;
+            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath)) yield break;
 
             string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
             if (!Directory.Exists(entitiesDir))
             {
                 Debug.LogError($"[UnityAIBridge] Entities directory not found: {entitiesDir}. Run Setup first.");
-                return;
+                yield break;
             }
 
             // Collect every GameObject in this scene (including inactive).
@@ -838,42 +875,60 @@ namespace UnityAIBridge.Editor
             foreach (var root in manager.gameObject.scene.GetRootGameObjects())
                 CollectHierarchy(root, allObjects);
 
-            // Pass 1 — assign EntitySync + UUID to unmanaged objects.
-            // SuppressWriteEvents prevents ObjectChangeEvents from writing
-            // individual JSON files while we're adding components in bulk.
-            LiveSyncController.SuppressWriteEvents = true;
-            int newCount = 0;
-            foreach (var go in allObjects)
+            int total = allObjects.Count;
+
+            try
             {
-                if (go.GetComponent<SceneDataManager>() != null) continue;
-                if (go.GetComponent<EntitySync>() != null) continue;
+                // Pass 1 — assign EntitySync + UUID to unmanaged objects.
+                // SuppressWriteEvents prevents ObjectChangeEvents from writing
+                // individual JSON files while we're adding components in bulk.
+                LiveSyncController.SuppressWriteEvents = true;
+                int newCount = 0;
+                for (int i = 0; i < allObjects.Count; i++)
+                {
+                    var go = allObjects[i];
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", $"Registering {go.name}…", (float)i / total * 0.5f);
 
-                var sync = go.AddComponent<EntitySync>();
-                sync.uuid = Guid.NewGuid().ToString();
-                manager.Register(sync.uuid, go);
-                newCount++;
-            }
-            LiveSyncController.SuppressWriteEvents = false;
+                    if (go.GetComponent<SceneDataManager>() != null) continue;
+                    if (go.GetComponent<EntitySync>() != null) continue;
 
-            // Pass 2 — write JSON for all managed objects (new and pre-existing).
-            // Pre-existing EntitySync objects may not be in the registry yet — register them.
-            // WriteEntity's diff-guard skips unchanged files on repeat runs.
-            int writtenCount = 0;
-            foreach (var go in allObjects)
-            {
-                var sync = go.GetComponent<EntitySync>();
-                if (sync == null || string.IsNullOrEmpty(sync.uuid)) continue;
-                if (go.GetComponent<SceneDataManager>() != null) continue;
-
-                if (manager.GetByUUID(sync.uuid) == null)
+                    var sync = go.AddComponent<EntitySync>();
+                    sync.uuid = Guid.NewGuid().ToString();
                     manager.Register(sync.uuid, go);
+                    newCount++;
+                    yield return null;
+                }
+                LiveSyncController.SuppressWriteEvents = false;
 
-                WriteEntity(go, entitiesDir);
-                writtenCount++;
+                // Pass 2 — write JSON for all managed objects (new and pre-existing).
+                // Pre-existing EntitySync objects may not be in the registry yet — register them.
+                // WriteEntity's diff-guard skips unchanged files on repeat runs.
+                int writtenCount = 0;
+                for (int i = 0; i < allObjects.Count; i++)
+                {
+                    var go = allObjects[i];
+                    EditorUtility.DisplayProgressBar("Unity AI Bridge", $"Writing {go.name}…", 0.5f + (float)i / total * 0.5f);
+
+                    var sync = go.GetComponent<EntitySync>();
+                    if (sync == null || string.IsNullOrEmpty(sync.uuid)) continue;
+                    if (go.GetComponent<SceneDataManager>() != null) continue;
+
+                    if (manager.GetByUUID(sync.uuid) == null)
+                        manager.Register(sync.uuid, go);
+
+                    WriteEntity(go, entitiesDir);
+                    writtenCount++;
+                    yield return null;
+                }
+
+                EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+                Debug.Log($"[UnityAIBridge] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written.");
             }
-
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-            Debug.Log($"[UnityAIBridge] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written.");
+            finally
+            {
+                LiveSyncController.SuppressWriteEvents = false;
+                EditorUtility.ClearProgressBar();
+            }
         }
 
         private static void CollectHierarchy(GameObject go, List<GameObject> result)
