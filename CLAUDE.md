@@ -22,16 +22,67 @@ Assets/SceneData/Level_01/
 
 ---
 
-## Reading the Current Scene
+## CLI Tools
 
-To understand what's in a scene before making changes:
+Four CLI tools are installed in `Tools/` at the project root. Prefer these over manually reading files — they are optimized for their tasks and enforce result caps.
+
+| Tool | When to use |
+|---|---|
+| `Tools/query-scene <scene> "<filter>"` | Find entities matching field criteria without opening every file |
+| `Tools/query-logs <type> [substring]` | Read Unity Editor.log filtered by type |
+| `Tools/get-selection [scene]` | Get UUIDs of objects currently selected in the Unity Editor |
+| `Tools/select-objects [scene] <uuid>...` | Set the Unity Editor selection by UUID |
+
+### query-scene
 
 ```bash
-ls Assets/SceneData/Level_01/Entities/
-cat Assets/SceneData/Level_01/Entities/<uuid>.json
+Tools/query-scene Level_A "component == GravityWell AND strength >= 1000"
+Tools/query-scene Level_A "transform.pos.y <= 0"
+Tools/query-scene Level_A "prefab contains HeavyDoor AND parent == null"
 ```
 
-Use `/scene-overview Assets/SceneData/Level_01` for a formatted hierarchy view.
+The `<scene>` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
+
+Prints one matching UUID per line. Read individual entity files for full details.
+
+Filter operators: `==  !=  >=  <=  >  <  contains` — logical: `AND  OR`
+
+Index-only fields (fast, no entity files opened): `name`, `prefab`, `parent`, `component`, `siblingIndex`
+Entity-file fields: `transform.pos.x/y/z`, `transform.rot.x/y/z`, `transform.scl.x/y/z`, any `customData` field name
+
+### query-logs
+
+```bash
+Tools/query-logs Error
+Tools/query-logs Warning "NullReference"
+Tools/query-logs Log "[UnityAIBridge]"
+```
+
+Types: `Error  Warning  Log  Exception  Assert` — type argument is required.
+
+### get-selection / select-objects
+
+```bash
+Tools/get-selection                          # returns UUID array for current selection
+Tools/get-selection Level_A                  # scoped to a specific scene
+Tools/select-objects <uuid> <uuid> ...       # select objects by UUID
+Tools/select-objects Level_A <uuid> ...      # scoped to a specific scene
+Tools/select-objects                         # clear selection
+```
+
+The `[scene]` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
+
+---
+
+## Reading the Current Scene
+
+To understand what's in a scene before making changes, prefer `Tools/query-scene` for filtered lookups, or `/scene-overview` for a full hierarchy view:
+
+```bash
+Tools/query-scene Level_01 "name == MyObject"
+```
+
+Use `/scene-overview Assets/SceneData/Level_01` for a formatted hierarchy view of all entities.
 
 ---
 

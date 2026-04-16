@@ -1,3 +1,8 @@
+---
+name: new-entity
+description: Create a new entity JSON file in the scene at the path given in $ARGUMENTS (e.g. `Assets/SceneData/Level_01`).
+---
+
 Create a new entity JSON file in the scene at the path given in $ARGUMENTS (e.g. `Assets/SceneData/Level_01`).
 
 Steps:

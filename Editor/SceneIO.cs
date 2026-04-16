@@ -21,6 +21,12 @@ namespace UnityAIBridge.Editor
     {
         private const int ExpectedSchemaVersion = 1;
 
+        private static readonly JsonSerializer FieldSerializer = JsonSerializer.Create(new JsonSerializerSettings
+        {
+            Converters = { new UnityMathConverter() },
+            ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+        });
+
         // ─── Primitive path prefix ────────────────────────────────────────────────
 
         private const string PrimitivePrefix = "primitive/";
@@ -38,162 +44,17 @@ namespace UnityAIBridge.Editor
 
         // ─── Bootstrap ────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Full async bootstrap: reads manifest, instantiates all entities, wires hierarchy,
-        /// applies transforms and customData. Displays a Unity progress bar.
-        /// </summary>
         private static bool _isBootstrapping = false;
         private static SceneDataManager _bootstrappingManager = null;
 
         /// <summary>
-        /// Cancels any in-flight bootstrap. Called by LiveSyncController when the active
+        /// Cancels any in-flight reconcile. Called by LiveSyncController when the active
         /// scene changes so the stale coroutine stops and the new scene can bootstrap.
         /// </summary>
         public static void CancelBootstrap()
         {
             _isBootstrapping = false;
             _bootstrappingManager = null;
-        }
-
-        /// <summary>
-        /// Full async bootstrap: reads manifest, instantiates all entities, wires hierarchy,
-        /// applies transforms and customData. Displays a Unity progress bar.
-        /// </summary>
-        public static IEnumerator BootstrapScene(SceneDataManager manager)
-        {
-            // 1. THE GUARD: Prevent multiple bootstraps from running at the same time
-            if (_isBootstrapping) yield break;
-            _isBootstrapping = true;
-            _bootstrappingManager = manager;
-
-            if (manager == null || string.IsNullOrEmpty(manager.sceneDataPath))
-            {
-                _isBootstrapping = false;
-                yield break;
-            }
-
-            // 2. THE TRY-FINALLY: Ensures the progress bar and guard are ALWAYS 
-            // cleaned up, even if the code crashes or hits an error.
-            try
-            {
-                // 3. THE CLEANUP: Wipe "DontSave" puppets before spawning
-                ClearExistingEntities(manager);
-
-                // Capture scene before any yields — manager.gameObject may be destroyed mid-coroutine.
-                Scene targetScene = manager.gameObject.scene;
-
-                string manifestPath = Path.Combine(manager.sceneDataPath, "manifest.json");
-                if (!File.Exists(manifestPath))
-                {
-                    Debug.LogError($"[UnityAIBridge] manifest.json not found at {manifestPath}");
-                    yield break;
-                }
-
-                JObject manifest = JObject.Parse(File.ReadAllText(manifestPath));
-                int schemaVersion = manifest.Value<int>("schemaVersion");
-                if (schemaVersion != ExpectedSchemaVersion)
-                {
-                    Debug.LogError($"[UnityAIBridge] Schema mismatch. Expected {ExpectedSchemaVersion}, got {schemaVersion}.");
-                    yield break;
-                }
-
-                string entitiesDir = Path.Combine(manager.sceneDataPath, "Entities");
-                if (!Directory.Exists(entitiesDir))
-                {
-                    Debug.LogWarning($"[UnityAIBridge] Entities directory not found: {entitiesDir}");
-                    yield break;
-                }
-
-                string[] entityFiles = Directory.GetFiles(entitiesDir, "*.json");
-                var entityData = new List<(string uuid, JObject data, GameObject go)>();
-
-                // PASS 1 – Instantiate
-                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Instantiating entities…", 0f);
-                for (int i = 0; i < entityFiles.Length; i++)
-                {
-                    string path = entityFiles[i];
-                    EditorUtility.DisplayProgressBar("Unity AI Bridge", $"Instantiating {Path.GetFileName(path)}", (float)i / entityFiles.Length * 0.33f);
-
-                    bool parseSuccess = false;
-                    JObject data = null;
-                    try
-                    {
-                        data = JObject.Parse(File.ReadAllText(path));
-                        parseSuccess = true;
-                    }
-                    catch
-                    {
-                        Debug.LogWarning($"[UnityAIBridge] Failed to parse {path}. Skipping.");
-                    }
-
-                    if (!parseSuccess)
-                    {
-                        yield return null;
-                        continue;
-                    }
-
-                    string uuid = data.Value<string>("uuid");
-                    if (string.IsNullOrEmpty(uuid)) { yield return null; continue; }
-
-                    string prefabPath = data.Value<string>("prefabPath");
-                    GameObject go = InstantiateEntity(uuid, prefabPath, data.Value<string>("name"), targetScene);
-
-                    if (go != null)
-                    {
-                        manager.Register(uuid, go);
-                        entityData.Add((uuid, data, go));
-                    }
-                    yield return null;
-                    if (_bootstrappingManager != manager || manager == null) yield break;
-                }
-
-                // PASS 2 – Wire Hierarchy
-                if (manager == null) yield break;
-                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring hierarchy…", 0.33f);
-                for (int i = 0; i < entityData.Count; i++)
-                {
-                    var (uuid, data, go) = entityData[i];
-                    string parentUuid = data.Value<string>("parentUuid");
-                    if (!string.IsNullOrEmpty(parentUuid))
-                    {
-                        GameObject parentGo = manager.GetByUUID(parentUuid);
-                        if (parentGo != null) go.transform.SetParent(parentGo.transform, false);
-                    }
-                    EditorUtility.DisplayProgressBar("Unity AI Bridge", "Wiring...", 0.33f + (float)i / entityData.Count * 0.33f);
-                }
-
-                // PASS 2b – Apply sibling indices
-                // Must run after all SetParent calls so every sibling exists before ordering.
-                for (int i = 0; i < entityData.Count; i++)
-                {
-                    var (uuid, data, go) = entityData[i];
-                    int siblingIndex = data.Value<int?>("siblingIndex") ?? -1;
-                    if (siblingIndex >= 0)
-                        go.transform.SetSiblingIndex(siblingIndex);
-                }
-
-                // PASS 3 – Apply Transforms & Data
-                EditorUtility.DisplayProgressBar("Unity AI Bridge", "Applying data…", 0.66f);
-                for (int i = 0; i < entityData.Count; i++)
-                {
-                    var (uuid, data, go) = entityData[i];
-                    ApplyTransform(go, data["transform"] as JObject);
-                    ReconcileComponents(go, data["customData"] as JArray);
-                    EditorUtility.DisplayProgressBar("Unity AI Bridge", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
-                }
-
-                // Mark scene dirty so Unity saves the newly instantiated persistent entities.
-                if (manager != null && manager.gameObject != null)
-                    EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-                Debug.Log($"[UnityAIBridge] Bootstrap complete — {entityData.Count} entities loaded.");
-            }
-            finally
-            {
-                // 4. THE RESET: Always clear the UI and the lock
-                EditorUtility.ClearProgressBar();
-                _isBootstrapping = false;
-                if (_bootstrappingManager == manager) _bootstrappingManager = null;
-            }
         }
 
         /// <summary>
@@ -331,6 +192,10 @@ namespace UnityAIBridge.Editor
 
                 if (manager != null && manager.gameObject != null)
                     EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+
+                if (manager != null)
+                    IndexWriter.RegenerateIndex(manager.sceneDataPath);
+
                 Debug.Log($"[UnityAIBridge] Reconcile complete — {entityData.Count} entities.");
             }
             finally
@@ -515,9 +380,25 @@ namespace UnityAIBridge.Editor
                 FieldInfo field = FindSerializableField(type, prop.Key);
                 if (field == null) continue;
 
+                if (typeof(ScriptableObject).IsAssignableFrom(field.FieldType))
+                {
+                    string assetPath = prop.Value.Value<string>();
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        var asset = AssetDatabase.LoadAssetAtPath(assetPath, field.FieldType);
+                        if (asset == null)
+                            Debug.LogWarning($"[UnityAIBridge] ScriptableObject asset not found at '{assetPath}' for field {prop.Key} on {type.Name}");
+                        else
+                            field.SetValue(component, asset);
+                    }
+                    continue;
+                }
+
+                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType)) continue;
+
                 try
                 {
-                    object value = prop.Value.ToObject(field.FieldType);
+                    object value = prop.Value.ToObject(field.FieldType, FieldSerializer);
                     field.SetValue(component, value);
                 }
                 catch (Exception e)
@@ -557,6 +438,7 @@ namespace UnityAIBridge.Editor
 
             File.WriteAllText(filePath, json);
             sync.isDirty = false;
+            IndexWriter.UpsertEntity(go, Path.GetDirectoryName(entitiesDir));
 
             // --- THE FIX: Force Unity to see the new/updated file ---
             // We use ImportAsset because it's faster than a full Refresh() 
@@ -609,7 +491,7 @@ namespace UnityAIBridge.Editor
             return root.ToString(Formatting.Indented);
         }
 
-        private static string GetPrefabPath(GameObject go)
+        internal static string GetPrefabPath(GameObject go)
         {
             var prefab = PrefabUtility.GetCorrespondingObjectFromOriginalSource(go);
             if (prefab != null)
@@ -668,10 +550,20 @@ namespace UnityAIBridge.Editor
 
             foreach (var field in fields)
             {
+                if (typeof(ScriptableObject).IsAssignableFrom(field.FieldType))
+                {
+                    var asset = field.GetValue(component) as UnityEngine.Object;
+                    string assetPath = asset != null ? AssetDatabase.GetAssetPath(asset) : null;
+                    entry[field.Name] = assetPath != null ? (JToken)new JValue(assetPath) : JValue.CreateNull();
+                    continue;
+                }
+
+                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType)) continue;
+
                 try
                 {
                     object value = field.GetValue(component);
-                    entry[field.Name] = value != null ? JToken.FromObject(value) : JValue.CreateNull();
+                    entry[field.Name] = value != null ? JToken.FromObject(value, FieldSerializer) : JValue.CreateNull();
                 }
                 catch (Exception e)
                 {
@@ -1080,6 +972,44 @@ namespace UnityAIBridge.Editor
                 var t = assembly.GetType(fullName, throwOnError: false);
                 if (t != null) return t;
             }
+            return null;
+        }
+    }
+
+    // ─── Unity math type converter ────────────────────────────────────────────────
+
+    internal class UnityMathConverter : JsonConverter
+    {
+        public override bool CanConvert(Type t) =>
+            t == typeof(Vector2) || t == typeof(Vector3) || t == typeof(Vector4) ||
+            t == typeof(Quaternion) || t == typeof(Color) || t == typeof(Color32);
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            writer.WriteStartArray();
+            switch (value)
+            {
+                case Vector2 v:  writer.WriteValue(v.x); writer.WriteValue(v.y); break;
+                case Vector3 v:  writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z); break;
+                case Vector4 v:  writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z); writer.WriteValue(v.w); break;
+                case Quaternion q: writer.WriteValue(q.x); writer.WriteValue(q.y); writer.WriteValue(q.z); writer.WriteValue(q.w); break;
+                case Color c:    writer.WriteValue(c.r); writer.WriteValue(c.g); writer.WriteValue(c.b); writer.WriteValue(c.a); break;
+                case Color32 c:  writer.WriteValue(c.r); writer.WriteValue(c.g); writer.WriteValue(c.b); writer.WriteValue(c.a); break;
+            }
+            writer.WriteEndArray();
+        }
+
+        public override object ReadJson(JsonReader reader, Type t, object existing, JsonSerializer serializer)
+        {
+            var arr = JArray.Load(reader);
+            float F(int i) => arr.Count > i ? arr[i].Value<float>() : 0f;
+            byte B(int i) => arr.Count > i ? arr[i].Value<byte>() : (byte)0;
+            if (t == typeof(Vector2))   return new Vector2(F(0), F(1));
+            if (t == typeof(Vector3))   return new Vector3(F(0), F(1), F(2));
+            if (t == typeof(Vector4))   return new Vector4(F(0), F(1), F(2), F(3));
+            if (t == typeof(Quaternion)) return new Quaternion(F(0), F(1), F(2), F(3));
+            if (t == typeof(Color))     return new Color(F(0), F(1), F(2), F(3));
+            if (t == typeof(Color32))   return new Color32(B(0), B(1), B(2), B(3));
             return null;
         }
     }

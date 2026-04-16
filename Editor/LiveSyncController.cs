@@ -37,7 +37,7 @@ namespace UnityAIBridge.Editor
 
         /// <summary>
         /// When true, HandleDestroyEvent and HandleCreateEvent skip their write/delete logic.
-        /// Set during the BootstrapScene destruction pass to prevent JSON files from being
+        /// Set during scene reconciliation to prevent JSON files from being
         /// deleted while entities are being re-instantiated.
         /// </summary>
         internal static bool SuppressWriteEvents = false;
@@ -45,6 +45,8 @@ namespace UnityAIBridge.Editor
         // ─── Static constructor (InitializeOnLoad) ────────────────────────────────
         static LiveSyncController()
         {
+            SelectionSync.Initialize();
+
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
 
@@ -125,6 +127,8 @@ namespace UnityAIBridge.Editor
             _entitiesWatcher.Changed += OnEntityFileChanged;
             _entitiesWatcher.Deleted += OnEntityFileChanged;
             _entitiesWatcher.Renamed += OnEntityFileChanged;
+
+            SelectionSync.StartWatcher(sceneDataPath);
         }
 
         private static void StopWatcher()
@@ -135,6 +139,8 @@ namespace UnityAIBridge.Editor
                 _entitiesWatcher.Dispose();
                 _entitiesWatcher = null;
             }
+
+            SelectionSync.StopWatcher();
         }
 
         // Called on a background thread — just flag that a refresh is needed.
@@ -317,6 +323,7 @@ namespace UnityAIBridge.Editor
                 bool fileExisted = File.Exists(filePath);
                 if (fileExisted)
                     File.Delete(filePath);
+                IndexWriter.RemoveEntity(uuid, manager.sceneDataPath);
                 manager.Unregister(uuid);
                 Debug.Log($"[UnityAIBridge] PruneDestroyed: uuid={uuid} — removed from registry, json deleted={fileExisted}");
             }
@@ -456,22 +463,6 @@ namespace UnityAIBridge.Editor
             }
 
             SceneIO.InitializeScene(manager);
-        }
-
-        /// <summary>
-        /// Manually triggers a full scene reload. Can be called from menu items or tests.
-        /// </summary>
-        [MenuItem("Unity AI Bridge/Force Reload Scene")]
-        public static void ForceReloadScene()
-        {
-            var manager = SceneDataManager.Instance;
-            if (manager == null)
-            {
-                Debug.LogWarning("[UnityAIBridge] No SceneDataManager found in the active scene.");
-                return;
-            }
-            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
-            EditorCoroutineRunner.StartEditorCoroutine(SceneIO.BootstrapScene(manager));
         }
 
         /// <summary>

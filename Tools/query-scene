@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""
+query-scene <scene-name> "<filter-expression>"
+
+Filters scene entities and prints one matching UUID per line.
+Uses index.ndjson as a pre-filter, then opens only matched entity files for
+detailed field evaluation. Works with Unity closed.
+
+<scene-name> is the scene directory name (path relative to Assets/SceneData).
+
+Filter operators: ==  !=  >=  <=  >  <  contains
+Logical:          AND  OR
+
+Index-available fields (no entity files opened for these):
+  name, prefab, parent, component, siblingIndex
+
+Transform fields (entity file required):
+  transform.pos.x  transform.pos.y  transform.pos.z
+  transform.rot.x  transform.rot.y  transform.rot.z
+  transform.scl.x  transform.scl.y  transform.scl.z
+
+Custom component fields (entity file required):
+  Any field name present in customData entries (e.g. strength, maxDistance)
+
+Examples:
+  query-scene Level_A "component == GravityLauncher AND strength >= 5000"
+  query-scene Scenes/Level_A "transform.pos.y <= 0"
+  query-scene Level_A "prefab contains HeavyDoor AND parent == null"
+"""
+
+import json
+import os
+import re
+import sys
+
+RESULT_CAP = 100
+SEARCH_ROOT = "Assets/SceneData"
+
+
+# ── Scene discovery ───────────────────────────────────────────────────────────
+
+def find_scene_path(scene_name):
+    for dirpath, _dirs, files in os.walk(SEARCH_ROOT):
+        if "manifest.json" in files and os.path.basename(dirpath) == scene_name:
+            return dirpath
+    return None
+
+
+def list_available_scenes():
+    scenes = []
+    for dirpath, _dirs, files in os.walk(SEARCH_ROOT):
+        if "manifest.json" in files:
+            scenes.append(os.path.relpath(dirpath, SEARCH_ROOT))
+    return sorted(scenes)
+
+
+# ── Tokenizer ─────────────────────────────────────────────────────────────────
+
+TOKEN_RE = re.compile(r'\bAND\b|\bOR\b|\bcontains\b|==|!=|>=|<=|>|<|"[^"]*"|\'[^\']*\'|\S+')
+OPERATORS = {"==", "!=", ">=", "<=", ">", "<", "contains"}
+
+
+def tokenize(expr):
+    return TOKEN_RE.findall(expr)
+
+
+# ── AST ───────────────────────────────────────────────────────────────────────
+
+class Cmp:
+    def __init__(self, field, op, value):
+        self.field = field
+        self.op = op
+        self.value = value.strip('"\'')
+
+class And:
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+class Or:
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+
+# ── Parser ────────────────────────────────────────────────────────────────────
+
+def parse(expr):
+    tokens = tokenize(expr)
+    pos = [0]
+
+    def peek():
+        return tokens[pos[0]] if pos[0] < len(tokens) else None
+
+    def consume():
+        t = tokens[pos[0]]
+        pos[0] += 1
+        return t
+
+    def parse_cmp():
+        field = consume()
+        op = consume()
+        if op not in OPERATORS:
+            raise ValueError(f"Unknown operator: {op!r}")
+        value = consume()
+        return Cmp(field, op, value)
+
+    def parse_and():
+        left = parse_cmp()
+        while peek() == "AND":
+            consume()
+            left = And(left, parse_cmp())
+        return left
+
+    def parse_or():
+        left = parse_and()
+        while peek() == "OR":
+            consume()
+            left = Or(left, parse_and())
+        return left
+
+    return parse_or()
+
+
+# ── Value comparison ──────────────────────────────────────────────────────────
+
+def cmp_values(actual, op, expected):
+    """Compare actual against expected using op. Returns bool."""
+    if actual is None:
+        # null comparisons
+        null_values = {"null", "none", ""}
+        if op == "==":
+            return str(expected).lower() in null_values
+        if op == "!=":
+            return str(expected).lower() not in null_values
+        return False
+
+    # Numeric comparison
+    try:
+        a, b = float(actual), float(expected)
+        return {"==": a == b, "!=": a != b, ">=": a >= b,
+                "<=": a <= b, ">": a > b, "<": a < b}[op]
+    except (ValueError, TypeError, KeyError):
+        pass
+
+    # String comparison
+    a_s, b_s = str(actual).lower(), str(expected).lower()
+    if op == "contains":
+        return b_s in a_s
+    if op == "==":
+        return a_s == b_s
+    if op == "!=":
+        return a_s != b_s
+    return False
+
+
+# ── Index pre-filter ──────────────────────────────────────────────────────────
+
+INDEX_FIELDS = {"name", "prefab", "parent", "component", "siblingindex"}
+
+
+def is_index_field(field):
+    return field.lower() in INDEX_FIELDS
+
+
+def extract_and_clauses(ast):
+    """
+    Pull top-level AND-connected Cmp nodes into two buckets:
+    index-evaluable and not. OR nodes are left as-is in the non-index bucket.
+    """
+    index_cmps, other = [], []
+
+    def walk(node):
+        if isinstance(node, And):
+            walk(node.left)
+            walk(node.right)
+        elif isinstance(node, Cmp):
+            (index_cmps if is_index_field(node.field) else other).append(node)
+        else:
+            other.append(node)  # Or subtree — can't pre-filter
+
+    walk(ast)
+    return index_cmps, other
+
+
+def load_index(index_path):
+    """Returns (uuid_info dict, uuid_components dict)."""
+    uuid_info = {}
+    uuid_components = {}
+    if not os.path.exists(index_path):
+        return uuid_info, uuid_components
+    with open(index_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            uuid = obj.get("uuid")
+            if not uuid:
+                continue
+            if "component" in obj:
+                uuid_components.setdefault(uuid, []).append(obj["component"])
+            else:
+                uuid_info[uuid] = obj
+    return uuid_info, uuid_components
+
+
+def eval_index_cmp(cmp, info, components):
+    """Evaluate a single index-field Cmp against index data."""
+    f = cmp.field.lower()
+    if f == "component":
+        for comp_type in components:
+            short = comp_type.split(".")[-1]
+            if cmp_values(comp_type, cmp.op, cmp.value) or cmp_values(short, cmp.op, cmp.value):
+                return True
+        return False
+    field_map = {
+        "name": "name", "prefab": "prefab",
+        "parent": "parent", "siblingindex": "siblingIndex",
+    }
+    key = field_map.get(f)
+    return cmp_values(info.get(key), cmp.op, cmp.value)
+
+
+def get_candidates(ast, index_path, entities_dir):
+    """
+    Returns (candidate_uuids, needs_full_eval).
+    Uses index to narrow candidates when possible.
+    Falls back to listing the entities directory when no index clauses apply.
+    """
+    uuid_info, uuid_components = load_index(index_path)
+    index_cmps, other = extract_and_clauses(ast)
+
+    if not index_cmps or not uuid_info:
+        # No index filtering possible — scan entity files directly
+        uuids = [os.path.splitext(f)[0] for f in os.listdir(entities_dir) if f.endswith(".json")]
+        return uuids, True
+
+    candidates = [
+        uuid for uuid, info in uuid_info.items()
+        if all(eval_index_cmp(c, info, uuid_components.get(uuid, [])) for c in index_cmps)
+    ]
+    return candidates, bool(other)
+
+
+# ── Entity-file evaluation ────────────────────────────────────────────────────
+
+AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
+
+def get_entity_field(entity, field):
+    # Dot-path transform fields: transform.pos.y, transform.rot.x, etc.
+    parts = field.lower().split(".")
+    if len(parts) == 3 and parts[0] == "transform" and parts[2] in AXIS_INDEX:
+        t = entity.get("transform", {})
+        arr = t.get(parts[1], [])
+        idx = AXIS_INDEX[parts[2]]
+        return arr[idx] if idx < len(arr) else None
+
+    # Top-level entity fields
+    f = field.lower()
+    top_map = {"name": "name", "prefab": "prefabPath", "prefabpath": "prefabPath",
+               "parent": "parentUuid", "parentuuid": "parentUuid", "siblingindex": "siblingIndex"}
+    if f in top_map:
+        return entity.get(top_map[f])
+
+    # Search customData fields
+    for comp in entity.get("customData", []):
+        if field in comp:
+            return comp[field]
+    return None
+
+
+def eval_ast(node, entity):
+    if isinstance(node, And):
+        return eval_ast(node.left, entity) and eval_ast(node.right, entity)
+    if isinstance(node, Or):
+        return eval_ast(node.left, entity) or eval_ast(node.right, entity)
+    if isinstance(node, Cmp):
+        if node.field.lower() == "component":
+            for comp in entity.get("customData", []):
+                t = comp.get("type", "")
+                short = t.split(".")[-1]
+                if cmp_values(t, node.op, node.value) or cmp_values(short, node.op, node.value):
+                    return True
+            return False
+        return cmp_values(get_entity_field(entity, node.field), node.op, node.value)
+    return False
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: query-scene <scene-name> \"<filter>\"", file=sys.stderr)
+        sys.exit(1)
+
+    scene_name, filter_expr = sys.argv[1], sys.argv[2]
+
+    scene_path = find_scene_path(scene_name)
+    if not scene_path:
+        print(f"Error: Scene '{scene_name}' not found under {SEARCH_ROOT}", file=sys.stderr)
+        available = list_available_scenes()
+        if available:
+            print("Available scenes (paths relative to Assets/SceneData):", file=sys.stderr)
+            for s in available:
+                print(f"  {s}", file=sys.stderr)
+        sys.exit(1)
+
+    entities_dir = os.path.join(scene_path, "Entities")
+    index_path = os.path.join(scene_path, "index.ndjson")
+
+    if not os.path.isdir(entities_dir):
+        print(f"Error: Entities directory not found at {entities_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        ast = parse(filter_expr)
+    except Exception as e:
+        print(f"Error parsing filter: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    candidates, needs_full_eval = get_candidates(ast, index_path, entities_dir)
+
+    results = []
+    files_opened = 0
+
+    for uuid in candidates:
+        if len(results) >= RESULT_CAP or files_opened >= RESULT_CAP:
+            break
+        entity_path = os.path.join(entities_dir, uuid + ".json")
+        if not os.path.exists(entity_path):
+            continue
+        try:
+            with open(entity_path) as f:
+                entity = json.load(f)
+            files_opened += 1
+        except Exception:
+            continue
+
+        if not needs_full_eval or eval_ast(ast, entity):
+            results.append(entity)
+
+    for entity in results:
+        print(entity["uuid"])
+
+    if len(results) == RESULT_CAP:
+        print(f"# Capped at {RESULT_CAP} results", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

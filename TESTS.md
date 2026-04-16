@@ -54,3 +54,9 @@
 | S9 | Write an entity JSON file for a closed scene while a different scene is open | Entity is NOT spawned in the open scene; console logs "no matching SceneDataManager … skipping hot reload"; entity appears correctly when the target scene is opened | PASSED | `EntityAssetPostprocessor` uses path-prefix matching to find the owning manager — if none matches (scene closed), hot reload is skipped entirely. Bootstrap on scene open is driven by `EditorSceneManager.activeSceneChangedInEditMode` |
 | S10 | Open a different scene while the current scene is still bootstrapping | In-flight bootstrap cancels cleanly; new scene bootstraps correctly with no stray root-level objects and no `MissingReferenceException` | PASSED | `CancelBootstrap()` clears the lock and tracked manager; `targetScene` is captured before first yield so objects land in the correct scene even if active scene switches mid-coroutine; null guards before each pass prevent accessing destroyed manager |
 | S11 | Run "Initialize Scene" on a scene with many objects | Progress bar displayed throughout; Unity does not hang | PASSED | `MigrateScene` converted to a coroutine — yields after each object in both passes with progress bar; `finally` block guarantees `SuppressWriteEvents` and progress bar are always cleared |
+
+## CLI Tools
+
+| # | Action | Expected | Status | Notes |
+|---|---|---|---|---|
+| T1 | `query-logs Log \| tail -2` | Returns the two most recent Unity console log entries | FAILED | Output is not ordered by recency — tailing a capped result set does not reliably surface the latest entries |

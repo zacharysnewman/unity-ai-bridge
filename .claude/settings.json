@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); echo \"$FILE\" | grep -qE '(\\.claude/commands/.*\\.md|CLAUDE\\.md)$' && echo '{\"systemMessage\":\"Claude integration file modified — re-run /install-json-scenes to propagate changes to any Unity project using this package.\"}' || true",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); echo \"$FILE\" | grep -qE '(\\.claude/skills/.*\\.md|CLAUDE\\.md)$' && echo '{\"systemMessage\":\"Claude integration file modified — re-run /install-unity-ai-bridge to propagate changes to any Unity project using this package.\"}' || true",
             "timeout": 10
           }
         ]
