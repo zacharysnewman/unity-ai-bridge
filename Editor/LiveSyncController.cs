@@ -385,9 +385,13 @@ namespace UnityAIBridge.Editor
         {
             if (!EditorUtility.DisplayDialog(
                 "Clean Scene",
-                "This will remove all EntitySync components and the SceneDataManager from the scene. GameObjects and JSON files will not be deleted.\n\nContinue?",
+                "This will remove all EntitySync components and the SceneDataManager from the scene. GameObjects will not be deleted.\n\nContinue?",
                 "Clean", "Cancel"))
                 return;
+
+            // Capture data path before destroying the manager.
+            var manager = SceneDataManager.Instance;
+            string sceneDataPath = manager != null ? manager.sceneDataPath : null;
 
             int removedSyncs = 0;
             var syncs = UnityEngine.Object.FindObjectsByType<EntitySync>(
@@ -398,13 +402,27 @@ namespace UnityAIBridge.Editor
                 removedSyncs++;
             }
 
-            var manager = SceneDataManager.Instance;
             if (manager != null)
                 Undo.DestroyObjectImmediate(manager.gameObject);
 
             StopWatcher();
 
             Debug.Log($"[UnityAIBridge] Clean Scene: removed {removedSyncs} EntitySync component(s) and SceneDataManager.");
+
+            // Offer to delete the JSON data directory, mirroring the Delete Scene prompt.
+            if (!string.IsNullOrEmpty(sceneDataPath) && AssetDatabase.IsValidFolder(sceneDataPath))
+            {
+                bool deleteData = EditorUtility.DisplayDialog(
+                    "Delete Scene Data?",
+                    $"Delete the associated JSON data directory?\n\n{sceneDataPath}\n\nThis cannot be undone.",
+                    "Delete", "Keep");
+
+                if (deleteData)
+                {
+                    AssetDatabase.DeleteAsset(sceneDataPath);
+                    Debug.Log($"[UnityAIBridge] Clean Scene: deleted scene data directory {sceneDataPath}.");
+                }
+            }
         }
 
         /// <summary>
