@@ -2,7 +2,10 @@
 """
 query-logs <type> [filter]
 
-Reads the Unity Editor log and returns entries matching the given type.
+Reads the Unity AI Bridge structured log file and returns entries matching
+the given type. The log is written by LogWriter.cs at Logs/unity-ai-bridge.log
+under the Unity project root, and is cleared each time Play Mode starts.
+
 Type argument is required — no raw dump is possible.
 An optional substring filter narrows results further.
 
@@ -14,37 +17,44 @@ Examples:
   query-logs Error
   query-logs Warning "NullReference"
   query-logs Log "[UnityAIBridge]"
-  query-logs Error limit:10    # limit ignored — cap is always 100
 """
 
 import os
-import platform
 import re
 import sys
 
 RESULT_CAP = 100
 VALID_TYPES = {"Error", "Warning", "Log", "Exception", "Assert"}
 
+LOG_FILENAME = os.path.join("Logs", "unity-ai-bridge.log")
+
+# Header pattern written by LogWriter: [HH:MM:SS.mmm] [Type] message
+HEADER_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\.\d{3}\] \[(\w+)\] ")
+
 
 # ── Log file location ─────────────────────────────────────────────────────────
 
 def find_log_path():
-    system = platform.system()
-    if system == "Darwin":
-        return os.path.expanduser("~/Library/Logs/Unity/Editor.log")
-    if system == "Windows":
-        local = os.environ.get("LOCALAPPDATA", "")
-        return os.path.join(local, "Unity", "Editor", "Editor.log")
-    # Linux
-    return os.path.expanduser("~/.config/unity3d/Editor.log")
+    """Walk up from the script location to find the Unity project root."""
+    # Tools/ lives at the project root, so start one level up from this script
+    candidate = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for _ in range(6):
+        log = os.path.join(candidate, LOG_FILENAME)
+        if os.path.exists(log):
+            return log
+        # Also accept a root that has an Assets/ folder (project root)
+        if os.path.isdir(os.path.join(candidate, "Assets")):
+            return os.path.join(candidate, LOG_FILENAME)
+        candidate = os.path.dirname(candidate)
+    return None
 
 
 # ── Log parsing ───────────────────────────────────────────────────────────────
 
 def parse_entries(log_path):
     """
-    Split the log file into entries. Each entry is a block of lines terminated
-    by a blank line. Entries without content are discarded.
+    Split the log into entries. Each entry starts with a [HH:MM:SS.mmm] [Type]
+    header line and is terminated by a blank line.
     """
     entries = []
     current = []
@@ -69,44 +79,13 @@ def parse_entries(log_path):
 
 
 def classify(entry):
-    """
-    Classify a log entry as one of the five Unity log types.
-
-    Priority order:
-      1. Exception — first line matches ExceptionName: pattern
-      2. Error     — stack trace contains Debug:LogError, or first line starts with "Error"
-      3. Warning   — stack trace contains Debug:LogWarning, or first line starts with "Warning"
-      4. Assert    — stack trace contains Debug:Assert
-      5. Log       — everything else (including plain Debug:Log)
-    """
-    lines = entry.split("\n")
-    first = lines[0]
-
-    if re.match(r"\w+Exception:", first):
-        return "Exception"
-
-    # Stack-trace markers are the most reliable signal
-    if "Debug:LogError" in entry or "UnityEngine.Debug:LogError" in entry:
-        return "Error"
-    if "Debug:LogWarning" in entry or "UnityEngine.Debug:LogWarning" in entry:
-        return "Warning"
-    if "Debug:Assert" in entry or "UnityEngine.Debug:Assert" in entry:
-        return "Assert"
-
-    # Heuristic: first-line prefix (catches editor-internal messages)
-    first_lower = first.lower()
-    if re.match(r"error[:\s]", first_lower):
-        return "Error"
-    if re.match(r"warning[:\s]", first_lower):
-        return "Warning"
-
-    return "Log"
+    m = HEADER_RE.match(entry)
+    return m.group(1) if m else "Log"
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    # Strip any limit:N tokens — the cap is internal and cannot be overridden
     raw_args = [a for a in sys.argv[1:] if not a.lower().startswith("limit:")]
 
     if not raw_args:
@@ -123,9 +102,9 @@ def main():
         sys.exit(1)
 
     log_path = find_log_path()
-    if not os.path.exists(log_path):
-        print(f"Error: Unity Editor.log not found at {log_path}.", file=sys.stderr)
-        print("Open Unity at least once to generate the log file.", file=sys.stderr)
+    if log_path is None or not os.path.exists(log_path):
+        print("Error: unity-ai-bridge.log not found.", file=sys.stderr)
+        print("Open Unity with the AI Bridge package installed to generate the log.", file=sys.stderr)
         sys.exit(1)
 
     entries = parse_entries(log_path)

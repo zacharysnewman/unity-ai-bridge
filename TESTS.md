@@ -60,3 +60,4 @@
 | # | Action | Expected | Status | Notes |
 |---|---|---|---|---|
 | T1 | `query-logs Log \| tail -2` | Returns the two most recent Unity console log entries | FAILED | Output is not ordered by recency — tailing a capped result set does not reliably surface the latest entries |
+| T2 | `query-logs Log "[UnityAIBridge]"` after triggering a hot-reload | Returns entries from the current editor session | PASSED | `LogWriter.cs` registers `Application.logMessageReceived` and appends structured entries to `Logs/unity-ai-bridge.log`; file is cleared on `ExitingEditMode`; `query-logs` reads that file instead of `Editor.log` |
