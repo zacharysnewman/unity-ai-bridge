@@ -48,10 +48,18 @@ namespace UnityAIBridge.Editor
             int siblingIndex = go.transform.GetSiblingIndex();
 
             var componentTypes = new List<string>();
-            foreach (var mb in go.GetComponents<MonoBehaviour>())
+            foreach (var comp in go.GetComponents<Component>())
             {
-                if (mb == null || mb is EntitySync) continue;
-                componentTypes.Add(mb.GetType().FullName);
+                if (comp == null) continue;
+                if (comp is MonoBehaviour mb)
+                {
+                    if (mb is EntitySync) continue;
+                    componentTypes.Add(comp.GetType().FullName);
+                }
+                else if (BuiltInComponentSerializer.ShouldInclude(comp))
+                {
+                    componentTypes.Add(comp.GetType().FullName);
+                }
             }
 
             string block = BuildBlock(uuid, name, prefab, parentUuid, siblingIndex, componentTypes);
@@ -99,6 +107,16 @@ namespace UnityAIBridge.Editor
                 int siblingIndex = data.Value<int?>("siblingIndex") ?? 0;
 
                 var componentTypes = new List<string>();
+                var builtInComponents = data["builtInComponents"] as JArray;
+                if (builtInComponents != null)
+                {
+                    foreach (JObject entry in builtInComponents)
+                    {
+                        string typeName = entry.Value<string>("type");
+                        if (!string.IsNullOrEmpty(typeName))
+                            componentTypes.Add(typeName);
+                    }
+                }
                 var customData = data["customData"] as JArray;
                 if (customData != null)
                 {

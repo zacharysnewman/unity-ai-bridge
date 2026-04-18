@@ -184,6 +184,7 @@ namespace UnityAIBridge.Editor
                     var (uuid, data, go) = entityData[i];
                     ApplyTransform(go, data["transform"] as JObject);
                     ReconcileComponents(go, data["customData"] as JArray);
+                    BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
                     EditorUtility.DisplayProgressBar("Unity AI Bridge", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
                 }
 
@@ -484,6 +485,10 @@ namespace UnityAIBridge.Editor
                 ["scl"] = new JArray(t.localScale.x, t.localScale.y, t.localScale.z),
             };
 
+            var builtInComponents = BuiltInComponentSerializer.SerializeAll(go);
+            if (builtInComponents.Count > 0)
+                root["builtInComponents"] = builtInComponents;
+
             var customData = SerializeCustomData(go);
             if (customData.Count > 0)
                 root["customData"] = customData;
@@ -653,6 +658,7 @@ namespace UnityAIBridge.Editor
 
             ApplyTransform(go, data["transform"] as JObject);
             ReconcileComponents(go, data["customData"] as JArray);
+            BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
 
             EditorUtility.SetDirty(go);
             if (go.scene.IsValid())

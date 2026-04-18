@@ -22,6 +22,15 @@ Steps:
    Copy the full directory contents. Overwrite any existing copies so the project always has the current version.
 
 4. Handle `<project-root>/CLAUDE.md`:
+   - Before inserting, strip any content between (and including) these markers from the package CLAUDE.md:
+     ```
+     <!-- PACKAGE-ONLY-BEGIN -->
+     ```
+     and
+     ```
+     <!-- PACKAGE-ONLY-END -->
+     ```
+     These blocks are for package-development notes only and must not appear in installed projects.
    - The Unity AI Bridge section is delimited by these exact sentinel lines:
      ```
      <!-- BEGIN: Unity AI Bridge -->

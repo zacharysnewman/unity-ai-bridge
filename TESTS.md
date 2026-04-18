@@ -1,5 +1,19 @@
 # Unity AI Bridge — Test Cases
 
+## Built-In Components
+
+| # | Action | Expected | Status | Notes |
+|---|---|---|---|---|
+| B1 | Object with BoxCollider initialized — run "Initialize Scene" | `builtInComponents` array with `UnityEngine.BoxCollider` entry written to JSON | PASSED | |
+| B2 | Edit `m_IsTrigger` in `builtInComponents` JSON | BoxCollider `isTrigger` flag updated on object within ~300ms | PASSED | |
+| B3 | Edit `m_Size` in `builtInComponents` JSON | BoxCollider size updated on object | PASSED | |
+| B4 | Add Rigidbody `builtInComponents` entry to JSON for object that has none | Rigidbody component added to object with specified field values | PASSED | |
+| B5 | Remove entry from `builtInComponents` | Component destroyed on object | PASSED | |
+| B6 | `query-scene Level_A "component == BoxCollider"` | Returns UUIDs of entities with BoxCollider | PASSED | |
+| B7 | `query-scene Level_A "component == BoxCollider AND m_IsTrigger == true"` | Returns only trigger colliders | PASSED | |
+| B8 | `query-scene Level_A "component == Rigidbody AND m_Mass >= 5"` | Returns only heavy rigidbodies | PASSED | |
+| B9 | Add component in Unity Editor | JSON `builtInComponents` updated via write pipeline | PASSED | |
+
 ## JSON → Scene
 
 | # | Action | Expected | Status | Notes |
@@ -59,5 +73,6 @@
 
 | # | Action | Expected | Status | Notes |
 |---|---|---|---|---|
+| T3 | `Tools/select-objects Level_A <uuid>...` | Objects become selected in Unity hierarchy within ~300ms | FAILED | `select-objects` writes UUIDs to `selection.json`; `SelectionSync` watches via FSW and calls `Selection.objects`; selection does not appear to apply — FSW may fire but selection gets reset immediately after, or `Selection.objects` is being overwritten by something else |
 | T1 | `query-logs Log \| tail -2` | Returns the two most recent Unity console log entries | FAILED | Output is not ordered by recency — tailing a capped result set does not reliably surface the latest entries |
 | T2 | `query-logs Log "[UnityAIBridge]"` after triggering a hot-reload | Returns entries from the current editor session | PASSED | `LogWriter.cs` registers `Application.logMessageReceived` and appends structured entries to `Logs/unity-ai-bridge.log`; file is cleared on `ExitingEditMode`; `query-logs` reads that file instead of `Editor.log` |

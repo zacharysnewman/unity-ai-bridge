@@ -65,6 +65,13 @@
         }
       }
     },
+    "builtInComponents": {
+      "type": "array",
+      "description": "Ordered list of serialized built-in Unity components (Colliders, Rigidbody, etc.) using Unity's internal SerializedProperty names. Treated as the complete truth — components absent from this array are removed. Property names use Unity's internal serialized names (m_Size, m_IsTrigger, etc.).",
+      "items": {
+        "$ref": "#/$defs/componentEntry"
+      }
+    },
     "customData": {
       "type": "array",
       "description": "Ordered list of serialized MonoBehaviour components. The Nth entry for a given type maps to the Nth component of that type on the GameObject.",

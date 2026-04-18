@@ -1,3 +1,7 @@
+<!-- PACKAGE-ONLY-BEGIN -->
+> **Package development note:** After modifying any file in `Tools/`, run `/install-unity-ai-bridge` to propagate changes to the Unity project root. The project's `Tools/` copies are what actually get used.
+<!-- PACKAGE-ONLY-END -->
+
 # Unity AI Bridge — Claude Code Guide
 
 This package implements a **bidirectional sync** between JSON files on disk and a Unity scene.
@@ -84,6 +88,12 @@ Tools/query-scene Level_01 "name == MyObject"
 
 Use `/scene-overview Assets/SceneData/Level_01` for a formatted hierarchy view of all entities.
 
+To find entities by criteria, use `query-scene` — it returns UUIDs. To then inspect a specific entity, read its file directly — no additional tool needed:
+
+```
+Assets/SceneData/<SceneName>/Entities/<uuid>.json
+```
+
 ---
 
 ## Making Scene Changes
@@ -109,6 +119,7 @@ Or read individual entity files to understand their current state before editing
 | Rename an object | Edit `name` |
 | Reparent an object | Edit `parentUuid` to the new parent's UUID |
 | Detach from parent (make root-level) | Set `parentUuid` to `null` |
+| Change a built-in component value | Edit the relevant field inside `builtInComponents` (use Unity's internal property names, e.g. `m_Size`, `m_IsTrigger`) |
 | Change a component value | Edit the relevant field inside `customData` |
 | Add a component to an object | Add a new entry to `customData` with the correct `type` and field values |
 | Remove a component from an object | Delete the corresponding entry from the `customData` array — the `customData` array is treated as the complete truth; any MonoBehaviour absent from it will be destroyed on the GameObject |

@@ -266,7 +266,10 @@ def get_entity_field(entity, field):
     if f in top_map:
         return entity.get(top_map[f])
 
-    # Search customData fields
+    # Search builtInComponents fields, then customData fields
+    for comp in entity.get("builtInComponents", []):
+        if field in comp:
+            return comp[field]
     for comp in entity.get("customData", []):
         if field in comp:
             return comp[field]
@@ -280,7 +283,7 @@ def eval_ast(node, entity):
         return eval_ast(node.left, entity) or eval_ast(node.right, entity)
     if isinstance(node, Cmp):
         if node.field.lower() == "component":
-            for comp in entity.get("customData", []):
+            for comp in entity.get("builtInComponents", []) + entity.get("customData", []):
                 t = comp.get("type", "")
                 short = t.split(".")[-1]
                 if cmp_values(t, node.op, node.value) or cmp_values(short, node.op, node.value):
