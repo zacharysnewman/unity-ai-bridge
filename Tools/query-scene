@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """
 query-scene <scene-name> "<filter-expression>"
+query-scene <scene-name> --stdin "<filter-expression>"
 
 Filters scene entities and prints one matching UUID per line.
 Uses index.ndjson as a pre-filter, then opens only matched entity files for
 detailed field evaluation. Works with Unity closed.
 
+--stdin reads a UUID scope from stdin (one per line or JSON array) and evaluates
+the filter only within that set — skipping the index and full scene scan.
+Composes with get-visible-objects, get-selection, and other UUID-producing tools:
+
+  get-visible-objects | query-scene --stdin Level_A "name contains Tree"
+  get-selection | query-scene --stdin Level_A "component == Enemy"
+
 <scene-name> is the scene directory name (path relative to Assets/SceneData).
 
 Filter operators: ==  !=  >=  <=  >  <  contains
+Modulo:           field % divisor op value  (e.g. transform.pos.x % 1 != 0)
 Logical:          AND  OR
 
 Index-available fields (no entity files opened for these):
@@ -26,6 +35,8 @@ Examples:
   query-scene Level_A "component == GravityLauncher AND strength >= 5000"
   query-scene Scenes/Level_A "transform.pos.y <= 0"
   query-scene Level_A "prefab contains HeavyDoor AND parent == null"
+  query-scene Level_A "transform.pos.x % 1 != 0"
+  get-visible-objects | query-scene --stdin Level_A "name contains Tree"
 """
 
 import json
@@ -34,7 +45,7 @@ import re
 import sys
 
 RESULT_CAP = 100
-SEARCH_ROOT = "Assets/SceneData"
+SEARCH_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Assets", "SceneData")
 
 
 # ── Scene discovery ───────────────────────────────────────────────────────────
@@ -56,7 +67,7 @@ def list_available_scenes():
 
 # ── Tokenizer ─────────────────────────────────────────────────────────────────
 
-TOKEN_RE = re.compile(r'\bAND\b|\bOR\b|\bcontains\b|==|!=|>=|<=|>|<|"[^"]*"|\'[^\']*\'|\S+')
+TOKEN_RE = re.compile(r'\bAND\b|\bOR\b|\bcontains\b|==|!=|>=|<=|>|<|%|"[^"]*"|\'[^\']*\'|\S+')
 OPERATORS = {"==", "!=", ">=", "<=", ">", "<", "contains"}
 
 
@@ -69,6 +80,13 @@ def tokenize(expr):
 class Cmp:
     def __init__(self, field, op, value):
         self.field = field
+        self.op = op
+        self.value = value.strip('"\'')
+
+class ModCmp:
+    def __init__(self, field, modulus, op, value):
+        self.field = field
+        self.modulus = modulus.strip('"\'')
         self.op = op
         self.value = value.strip('"\'')
 
@@ -100,6 +118,13 @@ def parse(expr):
     def parse_cmp():
         field = consume()
         op = consume()
+        if op == "%":
+            modulus = consume()
+            cmp_op = consume()
+            if cmp_op not in OPERATORS:
+                raise ValueError(f"Unknown operator: {cmp_op!r}")
+            value = consume()
+            return ModCmp(field, modulus, cmp_op, value)
         if op not in OPERATORS:
             raise ValueError(f"Unknown operator: {op!r}")
         value = consume()
@@ -262,7 +287,9 @@ def get_entity_field(entity, field):
     # Top-level entity fields
     f = field.lower()
     top_map = {"name": "name", "prefab": "prefabPath", "prefabpath": "prefabPath",
-               "parent": "parentUuid", "parentuuid": "parentUuid", "siblingindex": "siblingIndex"}
+               "parent": "parentUuid", "parentuuid": "parentUuid", "siblingindex": "siblingIndex",
+               "tag": "tag", "layer": "layer", "isstatic": "isStatic", "activeSelf": "activeSelf",
+               "activeself": "activeSelf"}
     if f in top_map:
         return entity.get(top_map[f])
 
@@ -290,17 +317,39 @@ def eval_ast(node, entity):
                     return True
             return False
         return cmp_values(get_entity_field(entity, node.field), node.op, node.value)
+    if isinstance(node, ModCmp):
+        actual = get_entity_field(entity, node.field)
+        if actual is None:
+            return False
+        try:
+            remainder = float(actual) % float(node.modulus)
+            return cmp_values(remainder, node.op, node.value)
+        except (ValueError, TypeError):
+            return False
     return False
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def read_uuids_from_stdin():
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        return json.loads(raw)
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
 def main():
-    if len(sys.argv) < 3:
+    args = sys.argv[1:]
+    use_stdin = "--stdin" in args
+    args = [a for a in args if a != "--stdin"]
+
+    if len(args) < 2:
         print("Usage: query-scene <scene-name> \"<filter>\"", file=sys.stderr)
         sys.exit(1)
 
-    scene_name, filter_expr = sys.argv[1], sys.argv[2]
+    scene_name, filter_expr = args[0], args[1]
 
     scene_path = find_scene_path(scene_name)
     if not scene_path:
@@ -325,13 +374,17 @@ def main():
         print(f"Error parsing filter: {e}", file=sys.stderr)
         sys.exit(1)
 
-    candidates, needs_full_eval = get_candidates(ast, index_path, entities_dir)
+    if use_stdin:
+        # Scope to piped UUIDs — skip index, load only those files
+        candidates = read_uuids_from_stdin()
+        needs_full_eval = True
+    else:
+        candidates, needs_full_eval = get_candidates(ast, index_path, entities_dir)
 
     results = []
-    files_opened = 0
 
     for uuid in candidates:
-        if len(results) >= RESULT_CAP or files_opened >= RESULT_CAP:
+        if len(results) >= RESULT_CAP:
             break
         entity_path = os.path.join(entities_dir, uuid + ".json")
         if not os.path.exists(entity_path):
@@ -339,7 +392,6 @@ def main():
         try:
             with open(entity_path) as f:
                 entity = json.load(f)
-            files_opened += 1
         except Exception:
             continue
 
