@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """
 select-objects [scene-name] <uuid>...
+select-objects [scene-name] --stdin
 
 Writes UUIDs into the selection field of editor-state.json, preserving the other
 editor state fields (scenePath, sceneCamera, visibleObjects). Unity picks up
 the change instantly.
 
 Pass no UUIDs to clear the selection.
+
+--stdin reads UUIDs from stdin. Accepts a JSON array or one UUID per line,
+making it composable with get-visible-objects and query-scene:
+
+    Tools/get-visible-objects | Tools/select-objects --stdin
+    Tools/query-scene Level_A "component == Enemy" | Tools/select-objects --stdin
 
 If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.
 Scene name is detected automatically: if the first argument looks like a UUID
@@ -17,6 +24,7 @@ Examples:
     select-objects Level_A 0eb2de67-e29b-41d4-a716-446655440000 4b0f504e-1234-5678-abcd-000000000001
     select-objects          # clears selection (searches for single scene)
     select-objects Level_A  # clears selection for Level_A
+    select-objects --stdin  # read UUIDs from stdin
 """
 
 import json
@@ -81,15 +89,33 @@ def resolve_path(scene):
         return found[0]
 
 
+def read_uuids_from_stdin():
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return []
+    # JSON array
+    if raw.startswith("["):
+        return json.loads(raw)
+    # One UUID per line (query-scene format)
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
 def main():
     args = sys.argv[1:]
 
     scene = None
     uuids = []
 
+    # Extract --stdin flag (may appear anywhere before or after scene name)
+    use_stdin = "--stdin" in args
+    args = [a for a in args if a != "--stdin"]
+
     if args and not looks_like_uuid(args[0]):
         scene = args[0]
-        uuids = args[1:]
+        args = args[1:]
+
+    if use_stdin:
+        uuids = read_uuids_from_stdin()
     else:
         uuids = args
 

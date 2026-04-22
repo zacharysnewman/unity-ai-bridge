@@ -75,6 +75,14 @@ Tools/get-selection Level_A                  # scoped to a specific scene
 Tools/select-objects <uuid> <uuid> ...       # select objects by UUID
 Tools/select-objects Level_A <uuid> ...      # scoped to a specific scene
 Tools/select-objects                         # clear selection
+Tools/select-objects --stdin                 # read UUIDs from stdin (JSON array or one per line)
+```
+
+`--stdin` makes `select-objects` composable with any UUID-producing tool:
+
+```bash
+Tools/get-visible-objects | Tools/select-objects --stdin
+Tools/query-scene Level_A "component == Enemy" | Tools/select-objects --stdin
 ```
 
 ### get-scene-path / get-camera / get-visible-objects
