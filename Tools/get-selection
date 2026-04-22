@@ -2,10 +2,8 @@
 """
 get-selection [scene-name]
 
-Reads selection.json for the given scene and prints the UUID array.
-If no scene name is given, searches Assets/SceneData/ for a single selection.json.
-
-Fails with a clear error if selection.json is not found (Unity not initialized).
+Prints the UUIDs of currently selected objects as a JSON array.
+If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.
 
 Examples:
     get-selection
@@ -16,6 +14,7 @@ import json
 import os
 import sys
 
+STATE_FILE = "editor-state.json"
 SEARCH_ROOT = "Assets/SceneData"
 
 
@@ -34,17 +33,15 @@ def list_available_scenes():
     return sorted(scenes)
 
 
-def find_selection_files():
+def find_state_files():
     results = []
     for dirpath, _, filenames in os.walk(SEARCH_ROOT):
-        if "selection.json" in filenames:
-            results.append(os.path.join(dirpath, "selection.json"))
+        if STATE_FILE in filenames:
+            results.append(os.path.join(dirpath, STATE_FILE))
     return results
 
 
-def main():
-    scene = sys.argv[1] if len(sys.argv) > 1 else None
-
+def resolve_path(scene):
     if scene:
         scene_path = find_scene_path(scene)
         if not scene_path:
@@ -55,36 +52,32 @@ def main():
                 for s in available:
                     print(f"  {s}", file=sys.stderr)
             sys.exit(1)
-        path = os.path.join(scene_path, "selection.json")
+        return os.path.join(scene_path, STATE_FILE)
     else:
-        found = find_selection_files()
+        found = find_state_files()
         if len(found) == 0:
-            print(
-                "Error: No selection.json found. Is Unity open with a scene initialized?",
-                file=sys.stderr,
-            )
+            print(f"Error: No {STATE_FILE} found. Is Unity open with a scene initialized?", file=sys.stderr)
             sys.exit(1)
         elif len(found) > 1:
-            print(
-                "Error: Multiple scenes have selection.json. Specify a scene name:",
-                file=sys.stderr,
-            )
+            print(f"Error: Multiple scenes found. Specify a scene name:", file=sys.stderr)
             for f in found:
                 print(f"  {f}", file=sys.stderr)
             sys.exit(1)
-        path = found[0]
+        return found[0]
+
+
+def main():
+    scene = sys.argv[1] if len(sys.argv) > 1 else None
+    path = resolve_path(scene)
 
     if not os.path.exists(path):
-        print(
-            f"Error: selection.json not found at {path}. Is Unity open with the scene initialized?",
-            file=sys.stderr,
-        )
+        print(f"Error: {STATE_FILE} not found at {path}. Is Unity open with the scene initialized?", file=sys.stderr)
         sys.exit(1)
 
     with open(path) as f:
         data = json.load(f)
 
-    print(json.dumps(data, indent=2))
+    print(json.dumps(data.get("selection", []), indent=2))
 
 
 if __name__ == "__main__":

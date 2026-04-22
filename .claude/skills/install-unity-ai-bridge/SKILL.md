@@ -55,11 +55,14 @@ Steps:
 5. Install CLI tools:
    - Create `<project-root>/Tools/` if it does not already exist.
    - Copy each script from the package `Tools/` directory:
-     - `Tools/get-selection`  → `<project-root>/Tools/get-selection`
-     - `Tools/select-objects` → `<project-root>/Tools/select-objects`
-     - `Tools/query-scene`    → `<project-root>/Tools/query-scene`
-     - `Tools/query-logs`     → `<project-root>/Tools/query-logs`
-   - Make both files executable (`chmod +x`).
+     - `Tools/get-selection`      → `<project-root>/Tools/get-selection`
+     - `Tools/select-objects`     → `<project-root>/Tools/select-objects`
+     - `Tools/get-scene-path`     → `<project-root>/Tools/get-scene-path`
+     - `Tools/get-camera`         → `<project-root>/Tools/get-camera`
+     - `Tools/get-visible-objects` → `<project-root>/Tools/get-visible-objects`
+     - `Tools/query-scene`        → `<project-root>/Tools/query-scene`
+     - `Tools/query-logs`         → `<project-root>/Tools/query-logs`
+   - Make all files executable (`chmod +x`).
    - Overwrite any existing copies so the project always has the current version.
 
 6. Report exactly what was created or updated, and remind the user to restart Claude Code

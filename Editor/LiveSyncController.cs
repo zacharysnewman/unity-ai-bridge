@@ -45,7 +45,7 @@ namespace UnityAIBridge.Editor
         // ─── Static constructor (InitializeOnLoad) ────────────────────────────────
         static LiveSyncController()
         {
-            SelectionSync.Initialize();
+            EditorStateSync.Initialize();
 
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
@@ -128,7 +128,7 @@ namespace UnityAIBridge.Editor
             _entitiesWatcher.Deleted += OnEntityFileChanged;
             _entitiesWatcher.Renamed += OnEntityFileChanged;
 
-            SelectionSync.StartWatcher(sceneDataPath);
+            EditorStateSync.StartWatcher(sceneDataPath);
         }
 
         private static void StopWatcher()
@@ -140,7 +140,7 @@ namespace UnityAIBridge.Editor
                 _entitiesWatcher = null;
             }
 
-            SelectionSync.StopWatcher();
+            EditorStateSync.StopWatcher();
         }
 
         // Called on a background thread — just flag that a refresh is needed.
@@ -387,7 +387,7 @@ namespace UnityAIBridge.Editor
         /// Removes all EntitySync components and the SceneDataManager from the scene,
         /// leaving the GameObjects intact. Does not delete any JSON files.
         /// </summary>
-        [MenuItem("Unity AI Bridge/Clean Scene")]
+        [MenuItem("Unity AI Bridge/Clean Scene", priority = 4)]
         public static void CleanScene()
         {
             if (!EditorUtility.DisplayDialog(
@@ -440,7 +440,7 @@ namespace UnityAIBridge.Editor
         /// The scene must be saved before initialization — sceneDataPath is derived
         /// from the scene file path automatically.
         /// </summary>
-        [MenuItem("Unity AI Bridge/Initialize Scene")]
+        [MenuItem("Unity AI Bridge/Initialize Scene", priority = 2)]
         public static void InitializeScene()
         {
             var activeScene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
@@ -468,7 +468,7 @@ namespace UnityAIBridge.Editor
         /// <summary>
         /// Validates the current scene and logs the result.
         /// </summary>
-        [MenuItem("Unity AI Bridge/Validate Scene")]
+        [MenuItem("Unity AI Bridge/Validate Scene", priority = 3)]
         public static void ValidateSceneMenu()
         {
             var manager = SceneDataManager.Instance;

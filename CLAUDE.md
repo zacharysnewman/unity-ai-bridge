@@ -6,7 +6,7 @@
 
 This package implements a **bidirectional sync** between JSON files on disk and a Unity scene.
 Both representations are always kept in perfect sync — changes can originate from either side.
-Unity hot-reloads any JSON file change within ~300ms via FileSystemWatcher.
+Unity hot-reloads any JSON file change instantly via FileSystemWatcher.
 Any change made in the Unity Editor is automatically written back to the corresponding JSON file.
 On conflict (simultaneous edits to both sides), the JSON file wins.
 
@@ -28,14 +28,17 @@ Assets/SceneData/Level_01/
 
 ## CLI Tools
 
-Four CLI tools are installed in `Tools/` at the project root. Prefer these over manually reading files — they are optimized for their tasks and enforce result caps.
+Seven CLI tools are installed in `Tools/` at the project root. Prefer these over manually reading files — they are optimized for their tasks and enforce result caps.
 
 | Tool | When to use |
 |---|---|
 | `Tools/query-scene <scene> "<filter>"` | Find entities matching field criteria without opening every file |
 | `Tools/query-logs <type> [substring]` | Read Unity Editor.log filtered by type |
-| `Tools/get-selection [scene]` | Get UUIDs of objects currently selected in the Unity Editor |
+| `Tools/get-selection [scene]` | Get UUIDs of currently selected objects |
 | `Tools/select-objects [scene] <uuid>...` | Set the Unity Editor selection by UUID |
+| `Tools/get-scene-path [scene]` | Get the active scene asset path |
+| `Tools/get-camera [scene]` | Get scene view camera position and rotation |
+| `Tools/get-visible-objects [scene]` | Get UUIDs of objects visible in the scene view frustum |
 
 ### query-scene
 
@@ -49,7 +52,7 @@ The `<scene>` argument is the scene directory name — the path relative to `Ass
 
 Prints one matching UUID per line. Read individual entity files for full details.
 
-Filter operators: `==  !=  >=  <=  >  <  contains` — logical: `AND  OR`
+Filter operators: `==  !=  >=  <=  >  <  contains` — modulo: `field % divisor op value` — logical: `AND  OR`
 
 Index-only fields (fast, no entity files opened): `name`, `prefab`, `parent`, `component`, `siblingIndex`
 Entity-file fields: `transform.pos.x/y/z`, `transform.rot.x/y/z`, `transform.scl.x/y/z`, any `customData` field name
@@ -72,6 +75,15 @@ Tools/get-selection Level_A                  # scoped to a specific scene
 Tools/select-objects <uuid> <uuid> ...       # select objects by UUID
 Tools/select-objects Level_A <uuid> ...      # scoped to a specific scene
 Tools/select-objects                         # clear selection
+```
+
+### get-scene-path / get-camera / get-visible-objects
+
+```bash
+Tools/get-scene-path                         # returns active scene asset path
+Tools/get-camera                             # returns scene view camera pos and rot
+Tools/get-visible-objects                    # returns UUIDs visible in the frustum
+Tools/get-camera Level_A                     # scoped to a specific scene
 ```
 
 The `[scene]` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
@@ -98,7 +110,7 @@ Assets/SceneData/<SceneName>/Entities/<uuid>.json
 
 ## Making Scene Changes
 
-JSON files are the mechanism for all scene edits. Every file you create, modify, or delete is reflected in Unity within ~300ms — no manual sync, save, or button press is needed.
+JSON files are the mechanism for all scene edits. Every file you create, modify, or delete is reflected in Unity instantly — no manual sync, save, or button press is needed.
 
 ### Step 1 — Read first
 
@@ -117,6 +129,10 @@ Or read individual entity files to understand their current state before editing
 | Add a new object | Create `Entities/<new-uuid>.json` |
 | Move / rotate / scale an object | Edit `transform.pos`, `transform.rot`, or `transform.scl` |
 | Rename an object | Edit `name` |
+| Enable / disable an object | Edit `activeSelf` |
+| Change the tag | Edit `tag` (must be a tag defined in Project Settings → Tags and Layers) |
+| Change the layer | Edit `layer` (layer name string, e.g. `"Default"`, `"UI"`) |
+| Mark as static / non-static | Edit `isStatic` (bool — sets or clears all static editor flags) |
 | Reparent an object | Edit `parentUuid` to the new parent's UUID |
 | Detach from parent (make root-level) | Set `parentUuid` to `null` |
 | Change a built-in component value | Edit the relevant field inside `builtInComponents` (use Unity's internal property names, e.g. `m_Size`, `m_IsTrigger`) |
@@ -126,15 +142,7 @@ Or read individual entity files to understand their current state before editing
 | Delete an object | Delete `Entities/<uuid>.json` — child entities are removed automatically |
 | Duplicate an object | Create a new file with a fresh UUID; copy all other fields |
 | Change which prefab an object uses | Edit `prefabPath` — Unity will destroy and reinstantiate the object |
-
-The following operations are **not supported** via JSON — do not add fields for them, as they will be silently ignored:
-
-| What you want to do | Why it's not in the JSON |
-|---|---|
-| Enable / disable an object | No `active` field — controlled by the prefab |
-| Change layer or tag | Not serialized — defined on the prefab |
-| Reorder siblings | No sibling-index field — order is not guaranteed |
-| Add a built-in component | Built-in components (Collider, Rigidbody, etc.) come from the prefab only |
+| Reorder siblings | Edit `siblingIndex` (zero-based index among siblings under the same parent or scene root) |
 
 ### Step 3 — Execute in dependency order
 
@@ -185,6 +193,10 @@ When making multiple changes, order matters:
 | `transform.pos` | Yes | Local-space position (meters) when parented; world-space at root. |
 | `transform.rot` | Yes | Local-space Euler angles (degrees), same values shown in Unity Inspector. |
 | `transform.scl` | Yes | Local scale (always local). |
+| `tag` | No | Unity tag string. Must be defined in Project Settings → Tags and Layers. |
+| `layer` | No | Layer name string (e.g. `"Default"`, `"UI"`). Must be defined in Project Settings. |
+| `isStatic` | No | `true` enables all static editor flags; `false` clears them. |
+| `activeSelf` | No | Whether the object is active. Maps to `GameObject.SetActive()`. |
 | `customData` | No | Array of serialized MonoBehaviour entries (see below). |
 
 ---

@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 """
-select-objects [scene-name] <uuid>...
+get-camera [scene-name]
 
-Writes UUIDs into the selection field of editor-state.json, preserving the other
-editor state fields (scenePath, sceneCamera, visibleObjects). Unity picks up
-the change instantly.
-
-Pass no UUIDs to clear the selection.
+Prints the scene view camera position and rotation as JSON:
+  { "pos": [x, y, z], "rot": [x, y, z] }
 
 If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.
-Scene name is detected automatically: if the first argument looks like a UUID
-(contains hyphens), all arguments are treated as UUIDs.
 
 Examples:
-    select-objects 0eb2de67-e29b-41d4-a716-446655440000
-    select-objects Level_A 0eb2de67-e29b-41d4-a716-446655440000 4b0f504e-1234-5678-abcd-000000000001
-    select-objects          # clears selection (searches for single scene)
-    select-objects Level_A  # clears selection for Level_A
+    get-camera
+    get-camera Level_A
 """
 
 import json
@@ -25,12 +18,6 @@ import sys
 
 STATE_FILE = "editor-state.json"
 SEARCH_ROOT = "Assets/SceneData"
-
-UUID_CHARS = set("0123456789abcdefABCDEF-")
-
-
-def looks_like_uuid(s):
-    return "-" in s and all(c in UUID_CHARS for c in s)
 
 
 def find_scene_path(scene_name):
@@ -82,42 +69,22 @@ def resolve_path(scene):
 
 
 def main():
-    args = sys.argv[1:]
-
-    scene = None
-    uuids = []
-
-    if args and not looks_like_uuid(args[0]):
-        scene = args[0]
-        uuids = args[1:]
-    else:
-        uuids = args
-
+    scene = sys.argv[1] if len(sys.argv) > 1 else None
     path = resolve_path(scene)
 
     if not os.path.exists(path):
         print(f"Error: {STATE_FILE} not found at {path}. Is Unity open with the scene initialized?", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        with open(path) as f:
-            existing = json.load(f)
-        if isinstance(existing, list):
-            state = {"selection": existing, "scenePath": None, "sceneCamera": None, "visibleObjects": []}
-        else:
-            state = existing
-    except (json.JSONDecodeError, OSError):
-        state = {"selection": [], "scenePath": None, "sceneCamera": None, "visibleObjects": []}
+    with open(path) as f:
+        data = json.load(f)
 
-    state["selection"] = uuids
+    camera = data.get("sceneCamera")
+    if camera is None:
+        print("Error: No scene camera data available. Is the Unity scene view open?", file=sys.stderr)
+        sys.exit(1)
 
-    with open(path, "w") as f:
-        json.dump(state, f, indent=2)
-
-    if uuids:
-        print(f"Selected {len(uuids)} object(s).")
-    else:
-        print("Selection cleared.")
+    print(json.dumps(camera, indent=2))
 
 
 if __name__ == "__main__":
