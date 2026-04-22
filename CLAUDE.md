@@ -39,6 +39,7 @@ Seven CLI tools are installed in `Tools/` at the project root. Prefer these over
 | `Tools/get-scene-path [scene]` | Get the active scene asset path |
 | `Tools/get-camera [scene]` | Get scene view camera position and rotation |
 | `Tools/get-visible-objects [scene]` | Get UUIDs of objects visible in the scene view frustum |
+| `Tools/patch-entities <scene> "<filter>" "<patch>"` | Batch-apply a field mutation to all matching entities |
 
 ### query-scene
 
@@ -92,6 +93,23 @@ Tools/get-scene-path                         # returns active scene asset path
 Tools/get-camera                             # returns scene view camera pos and rot
 Tools/get-visible-objects                    # returns UUIDs visible in the frustum
 Tools/get-camera Level_A                     # scoped to a specific scene
+```
+
+### patch-entities
+
+```bash
+patch-entities Level_A "prefab contains Cube" "transform.pos.y += 2"
+patch-entities Level_A "component == Enemy" "transform.rot.y = 0"
+patch-entities Level_A "name contains Wall" "transform.scl.x *= 2"
+patch-entities Level_A "transform.pos.y < 0" "transform.pos.y = 0"
+```
+
+Patch operators: `=  +=  -=  *=  /=  %=`
+
+Field paths are the same as `query-scene`. Composes with `--stdin`:
+
+```bash
+query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
 ```
 
 The `[scene]` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
