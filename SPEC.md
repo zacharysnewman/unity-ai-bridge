@@ -183,8 +183,6 @@ Built-in Unity components (BoxCollider, Rigidbody, AudioSource, Light, Camera, e
 | `Transform` | Handled by the top-level `transform` field |
 | `EntitySync` | Internal bridge component |
 | Any `MonoBehaviour` subclass | Handled by `customData` |
-| `Renderer` and all subtypes | Material/mesh asset references not yet supported |
-| `MeshFilter` | Mesh asset reference not yet supported |
 
 **`SerializedPropertyType` → JSON mapping:**
 
@@ -199,11 +197,18 @@ Built-in Unity components (BoxCollider, Rigidbody, AudioSource, Light, Camera, e
 | `Color` | `[r, g, b, a]` array |
 | `Rect` | `{ "x", "y", "width", "height" }` |
 | `Bounds` | `{ "center": [x,y,z], "size": [x,y,z] }` |
-| `ObjectReference` | asset path string via `AssetDatabase.GetAssetPath`, or `null` |
+| `ObjectReference` | asset path string via `AssetDatabase.GetAssetPath`, or `null` for built-in Unity assets |
+| `AnimationCurve` | array of keyframe objects: `[{ "time", "value", "inTangent", "outTangent", "tangentMode" }, ...]` |
+| `Gradient` | `{ "mode": int, "colorKeys": [{ "r","g","b","a","time" },...], "alphaKeys": [{ "alpha","time" },...]  }` |
+| `ManagedReference` (`[SerializeReference]`) | `{ "__type": "assemblyName TypeFullName", <fields...> }`, or `null` |
 | `Generic` (nested struct) | recurse into child properties |
 | Array | JSON array (capped at 256 elements) |
 
-Properties not in the table (e.g. `AnimationCurve`, `Gradient`, `ManagedReference`) are silently skipped. `m_Script` and editor-UI-only fold-state properties are always skipped.
+`m_Script` and editor-UI-only fold-state properties are always skipped.
+
+**`ManagedReference` notes:** The `__type` value uses Unity's `managedReferenceFullTypename` format: assembly name and fully-qualified type name separated by a space (e.g. `"Assembly-CSharp MyGame.SpeedModifier"`). On deserialization the type is instantiated via `Activator.CreateInstance` — the concrete type must have a parameterless constructor.
+
+**`Renderer` / `MeshFilter` notes:** `MeshRenderer`, `SkinnedMeshRenderer`, `MeshFilter`, and other Renderer subtypes are fully serialized. `ObjectReference` fields (materials, meshes) serialize as project-relative asset paths. Built-in Unity assets (no asset path or `Resources/` prefix) serialize as `null` and are skipped on apply — the prefab's defaults are preserved in those cases. Sub-assets (e.g. embedded meshes within an FBX) serialize the parent asset path only and cannot be independently addressed.
 
 **The array is treated as the complete truth**, consistent with `customData`. Built-in components present on a GameObject but absent from `builtInComponents` in the JSON will be removed during reconciliation. To remove a built-in component, delete its entry.
 
@@ -435,10 +440,27 @@ The **fully-qualified class name** is required (e.g., `"MyGame.Environment.DoorS
 
 ### 6.2 Reference Handling
 
-Direct `GameObject` or `MonoBehaviour` references are prohibited in synced scripts because they cannot survive JSON round-trips.
+**Direct `GameObject` and `Component` fields** in custom `MonoBehaviour` scripts are serialized automatically as UUID-based references:
 
-- Use the `EntityReference` struct (wraps a `string targetUUID`) wherever cross-entity references are needed.
-- Resolve at runtime with `SceneDataManager.Instance.GetByUUID(targetUUID)`.
+```json
+"myTarget": { "targetUUID": "8a7b6c5d-..." }
+```
+
+On load, the UUID is resolved via `SceneDataManager.GetByUUID` and the field is set to the live `GameObject` or `Component`. Null values serialize as JSON `null`.
+
+> **Ordering note:** resolution happens during Pass 3 of bootstrap (after all entities are registered in Pass 1), so forward references within the same scene load correctly. During hot-reload of individual files, an entity referencing another that hasn't yet been loaded will log a warning and leave the field null until the next reload.
+
+**`EntityReference` struct** remains available as the explicit pattern for cases where runtime resolution is preferred or for cross-scene refs:
+
+```csharp
+[Serializable]
+public struct EntityReference { public string targetUUID; }
+// Resolve: SceneDataManager.Instance.GetByUUID(ref.targetUUID)
+```
+
+**`ScriptableObject` fields** serialize as project-relative asset paths (unchanged).
+
+**Other `UnityEngine.Object` subclass fields** (e.g., `Texture`, `AudioClip`) are not serialized in `customData` — these are asset references that should come from the prefab or be assigned via `ScriptableObject` wrappers.
 
 > **Known limitation (multi-scene):** `SceneDataManager.Instance` is a static singleton — it returns the manager that was most recently enabled. In an additively-loaded multi-scene setup, cross-scene `EntityReference` resolution via `Instance` will only search the last-enabled scene's registry. To resolve a UUID from a specific scene, hold a direct reference to that scene's `SceneDataManager` and call `GetByUUID` on it directly. UUIDs are only required to be unique within a scene, so two additively-loaded scenes may share UUIDs without registry collision.
 >
@@ -610,7 +632,7 @@ The solution is a **sidecar `index.ndjson`** (§3.1) plus a three-layer query mo
 | **Same-type multi-component reordering** | The Nth `customData` entry for a given `type` maps to the Nth result of `GetComponents<T>()`. Reordering same-type components via the Inspector drag handles breaks this mapping on next load. Accepted trade-off. |
 | **OS-level scene moves** | `SceneAssetModificationProcessor` only intercepts Project-window operations. Moving or renaming scene files via the OS (Finder, `mv`) bypasses it; the data directory must be moved manually and `AssetDatabase.Refresh` called. |
 | **Multi-scene `Instance` singleton** | `SceneDataManager.Instance` returns the last-enabled manager. Cross-scene `EntityReference` resolution via `Instance` only searches one scene's registry. Hold a direct reference to the specific scene's `SceneDataManager` for cross-scene lookups. |
-| **`patch-entities` write path** | `patch-entities` writes to `customData` entries only; it cannot patch fields inside `builtInComponents`. Workaround: edit the entity JSON file directly. |
+| **`patch-entities` write path** | `patch-entities` writes to both `customData` and `builtInComponents` entries. Flat field values are patchable; nested object fields (e.g. `m_Center.x` inside a collider's center struct) are not — edit the entity JSON file directly for those. |
 | **`builtInComponents` array cap** | Arrays on built-in components with more than 256 elements are silently truncated during serialization. |
 | **Schema migration** | Version mismatch between `manifest.json` `schemaVersion` and the package's expected version aborts loading entirely. No automatic migration; requires manual update. |
 | **`isDirty` in builds** | `EntitySync.isDirty` is in the Runtime assembly without a `#if UNITY_EDITOR` guard — dead weight in player builds. Guarding it is a pending improvement. |

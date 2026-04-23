@@ -19,8 +19,6 @@ namespace UnityAIBridge.Editor
             if (component is Transform) return false;
             if (component is EntitySync) return false;
             if (component is MonoBehaviour) return false; // handled by customData
-            if (component is Renderer) return false;
-            if (component is MeshFilter) return false;
             return true;
         }
 
@@ -123,6 +121,50 @@ namespace UnityAIBridge.Editor
                     if (string.IsNullOrEmpty(path) || path.StartsWith("Resources/", StringComparison.Ordinal))
                         return null;
                     return new JValue(path);
+                }
+                case SerializedPropertyType.AnimationCurve:
+                {
+                    var curve = prop.animationCurveValue;
+                    var arr = new JArray();
+                    foreach (var key in curve.keys)
+                        arr.Add(new JObject
+                        {
+                            ["time"]        = key.time,
+                            ["value"]       = key.value,
+                            ["inTangent"]   = key.inTangent,
+                            ["outTangent"]  = key.outTangent,
+                            ["tangentMode"] = key.tangentMode,
+                        });
+                    return arr;
+                }
+                case SerializedPropertyType.Gradient:
+                {
+                    var grad = prop.gradientValue;
+                    var colorKeys = new JArray();
+                    foreach (var ck in grad.colorKeys)
+                        colorKeys.Add(new JObject
+                        {
+                            ["r"] = ck.color.r, ["g"] = ck.color.g,
+                            ["b"] = ck.color.b, ["a"] = ck.color.a,
+                            ["time"] = ck.time,
+                        });
+                    var alphaKeys = new JArray();
+                    foreach (var ak in grad.alphaKeys)
+                        alphaKeys.Add(new JObject { ["alpha"] = ak.alpha, ["time"] = ak.time });
+                    return new JObject
+                    {
+                        ["mode"]      = (int)grad.mode,
+                        ["colorKeys"] = colorKeys,
+                        ["alphaKeys"] = alphaKeys,
+                    };
+                }
+                case SerializedPropertyType.ManagedReference:
+                {
+                    if (prop.managedReferenceValue == null) return null;
+                    var obj = SerializeGeneric(prop) as JObject ?? new JObject();
+                    // Unity format: "assemblyName TypeFullName" (space-separated)
+                    obj["__type"] = prop.managedReferenceFullTypename;
+                    return obj;
                 }
                 case SerializedPropertyType.Generic:
                     return SerializeGeneric(prop);
@@ -257,6 +299,79 @@ namespace UnityAIBridge.Editor
                     }
                     break;
                 }
+                case SerializedPropertyType.AnimationCurve:
+                {
+                    if (!(token is JArray curveArr)) break;
+                    var keys = new Keyframe[curveArr.Count];
+                    for (int i = 0; i < curveArr.Count; i++)
+                    {
+                        if (!(curveArr[i] is JObject k)) continue;
+                        keys[i] = new Keyframe(
+                            k["time"]?.Value<float>()      ?? 0f,
+                            k["value"]?.Value<float>()     ?? 0f,
+                            k["inTangent"]?.Value<float>() ?? 0f,
+                            k["outTangent"]?.Value<float>() ?? 0f);
+                        keys[i].tangentMode = k["tangentMode"]?.Value<int>() ?? 0;
+                    }
+                    prop.animationCurveValue = new AnimationCurve(keys);
+                    break;
+                }
+                case SerializedPropertyType.Gradient:
+                {
+                    if (!(token is JObject gradObj)) break;
+                    var grad = new Gradient();
+                    var ckArr = gradObj["colorKeys"] as JArray;
+                    var akArr = gradObj["alphaKeys"] as JArray;
+                    var colorKeys = new GradientColorKey[ckArr?.Count ?? 0];
+                    var alphaKeys = new GradientAlphaKey[akArr?.Count ?? 0];
+                    if (ckArr != null)
+                        for (int i = 0; i < ckArr.Count; i++)
+                        {
+                            if (!(ckArr[i] is JObject k)) continue;
+                            colorKeys[i] = new GradientColorKey(
+                                new Color(k["r"]?.Value<float>() ?? 0f, k["g"]?.Value<float>() ?? 0f,
+                                          k["b"]?.Value<float>() ?? 0f, k["a"]?.Value<float>() ?? 1f),
+                                k["time"]?.Value<float>() ?? 0f);
+                        }
+                    if (akArr != null)
+                        for (int i = 0; i < akArr.Count; i++)
+                        {
+                            if (!(akArr[i] is JObject k)) continue;
+                            alphaKeys[i] = new GradientAlphaKey(
+                                k["alpha"]?.Value<float>() ?? 1f,
+                                k["time"]?.Value<float>()  ?? 0f);
+                        }
+                    grad.SetKeys(colorKeys, alphaKeys);
+                    if (gradObj["mode"] != null)
+                        grad.mode = (GradientMode)gradObj["mode"].Value<int>();
+                    prop.gradientValue = grad;
+                    break;
+                }
+                case SerializedPropertyType.ManagedReference:
+                {
+                    if (token.Type == JTokenType.Null)
+                    {
+                        prop.managedReferenceValue = null;
+                        break;
+                    }
+                    if (!(token is JObject mObj)) break;
+                    string typeName = mObj["__type"]?.Value<string>();
+                    if (string.IsNullOrEmpty(typeName)) break;
+                    var managedType = ResolveManagedReferenceType(typeName);
+                    if (managedType == null)
+                    {
+                        Debug.LogWarning($"[UnityAIBridge] ManagedReference type not found: {typeName}");
+                        break;
+                    }
+                    try { prop.managedReferenceValue = Activator.CreateInstance(managedType); }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"[UnityAIBridge] Cannot instantiate ManagedReference type {typeName}: {e.Message}");
+                        break;
+                    }
+                    ApplyGeneric(prop, token);
+                    break;
+                }
                 case SerializedPropertyType.Generic:
                     ApplyGeneric(prop, token);
                     break;
@@ -275,6 +390,7 @@ namespace UnityAIBridge.Editor
             {
                 foreach (var kvp in obj)
                 {
+                    if (kvp.Key.StartsWith("__")) continue; // skip metadata keys (e.g. __type)
                     var child = prop.FindPropertyRelative(kvp.Key);
                     if (child != null)
                         ApplyProp(child, kvp.Value);
@@ -345,6 +461,25 @@ namespace UnityAIBridge.Editor
                 if (t != null) return t;
             }
             return null;
+        }
+
+        // Unity managedReferenceFullTypename format: "assemblyName TypeFullName" (space-separated)
+        private static Type ResolveManagedReferenceType(string fullTypename)
+        {
+            int spaceIdx = fullTypename.IndexOf(' ');
+            string typeName     = spaceIdx >= 0 ? fullTypename.Substring(spaceIdx + 1) : fullTypename;
+            string assemblyName = spaceIdx >= 0 ? fullTypename.Substring(0, spaceIdx)  : null;
+
+            if (assemblyName != null)
+            {
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name != assemblyName) continue;
+                    var t = asm.GetType(typeName, throwOnError: false);
+                    if (t != null) return t;
+                }
+            }
+            return ResolveType(typeName);
         }
     }
 }
