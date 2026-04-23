@@ -471,18 +471,13 @@ namespace UnityAIBridge.Editor
 
                 if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
                 {
-                    string assetPath = prop.Value?.Type == JTokenType.String ? prop.Value.Value<string>() : null;
-                    if (!string.IsNullOrEmpty(assetPath))
-                    {
-                        var asset = AssetDatabase.LoadAssetAtPath(assetPath, field.FieldType);
-                        if (asset != null)
-                            field.SetValue(component, asset);
-                        else
-                            Debug.LogWarning($"[UnityAIBridge] Asset not found at '{assetPath}' for field {prop.Key} on {type.Name}");
-                    }
+                    var asset = DeserializeAssetReference(prop.Value, field.FieldType);
+                    if (asset != null)
+                        field.SetValue(component, asset);
+                    else if (prop.Value?.Type != JTokenType.Null && prop.Value != null)
+                        Debug.LogWarning($"[UnityAIBridge] Asset not found for field {prop.Key} on {type.Name}");
                     continue;
                 }
-
                 try
                 {
                     object value = prop.Value.ToObject(field.FieldType, FieldSerializer);
@@ -638,6 +633,44 @@ namespace UnityAIBridge.Editor
             return result;
         }
 
+        // Serializes a UnityEngine.Object asset reference.
+        // Main assets → plain path string. Sub-assets → { "path": "...", "name": "..." }.
+        private static JToken SerializeAssetReference(UnityEngine.Object asset)
+        {
+            if (asset == null) return JValue.CreateNull();
+            string path = AssetDatabase.GetAssetPath(asset);
+            if (string.IsNullOrEmpty(path)) return JValue.CreateNull();
+            if (AssetDatabase.IsSubAsset(asset))
+                return new JObject { ["path"] = path, ["name"] = asset.name };
+            return new JValue(path);
+        }
+
+        // Deserializes a UnityEngine.Object asset reference from a plain path string
+        // or a { "path", "name" } sub-asset object.
+        private static UnityEngine.Object DeserializeAssetReference(JToken token, Type fieldType)
+        {
+            if (token == null || token.Type == JTokenType.Null) return null;
+            if (token.Type == JTokenType.String)
+            {
+                string path = token.Value<string>();
+                return string.IsNullOrEmpty(path) ? null : AssetDatabase.LoadAssetAtPath(path, fieldType);
+            }
+            if (token is JObject obj)
+            {
+                string path = obj["path"]?.Value<string>();
+                string name = obj["name"]?.Value<string>();
+                if (string.IsNullOrEmpty(path)) return null;
+                if (!string.IsNullOrEmpty(name))
+                {
+                    foreach (var a in AssetDatabase.LoadAllAssetsAtPath(path))
+                        if (a != null && a.name == name && fieldType.IsAssignableFrom(a.GetType()))
+                            return a;
+                }
+                return AssetDatabase.LoadAssetAtPath(path, fieldType);
+            }
+            return null;
+        }
+
         private static void SerializeComponentFields(MonoBehaviour component, JObject entry)
         {
             Type type = component.GetType();
@@ -670,9 +703,7 @@ namespace UnityAIBridge.Editor
 
                 if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
                 {
-                    var asset = field.GetValue(component) as UnityEngine.Object;
-                    string assetPath = asset != null ? AssetDatabase.GetAssetPath(asset) : null;
-                    entry[field.Name] = !string.IsNullOrEmpty(assetPath) ? (JToken)new JValue(assetPath) : JValue.CreateNull();
+                    entry[field.Name] = SerializeAssetReference(field.GetValue(component) as UnityEngine.Object);
                     continue;
                 }
 
