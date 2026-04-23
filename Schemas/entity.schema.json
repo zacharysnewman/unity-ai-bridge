@@ -40,6 +40,22 @@
       ],
       "description": "UUID of the parent entity. Omit or null for root-level objects."
     },
+    "tag": {
+      "type": "string",
+      "description": "Unity tag assigned to the GameObject. Must be a tag defined in Project Settings → Tags and Layers."
+    },
+    "layer": {
+      "type": "string",
+      "description": "Layer name assigned to the GameObject. Must be a layer defined in Project Settings → Tags and Layers (e.g. \"Default\", \"UI\")."
+    },
+    "isStatic": {
+      "type": "boolean",
+      "description": "Whether the GameObject is marked as static (enables all static editor flags). True enables all static optimizations; false clears them."
+    },
+    "activeSelf": {
+      "type": "boolean",
+      "description": "Whether the GameObject is active in the scene. Maps to GameObject.SetActive()."
+    },
     "siblingIndex": {
       "type": "integer",
       "minimum": 0,

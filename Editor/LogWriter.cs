@@ -1,14 +1,16 @@
 using System;
 using System.IO;
 using UnityEditor;
+using UnityEditor.Build;
+using UnityEditor.Build.Reporting;
 using UnityEngine;
 
 namespace UnityAIBridge.Editor
 {
     /// <summary>
     /// Captures Unity console messages and appends them to a structured log file at
-    /// Logs/unity-ai-bridge.log under the project root. The file is cleared each time
-    /// Play Mode starts so it always reflects the current edit-mode session.
+    /// Logs/unity-ai-bridge.log under the project root. The file is cleared on domain
+    /// reload, Play Mode entry, and build start.
     /// query-logs reads this file instead of the OS Editor.log.
     /// </summary>
     [InitializeOnLoad]
@@ -20,6 +22,7 @@ namespace UnityAIBridge.Editor
         static LogWriter()
         {
             EnsureLogDirectory();
+            ClearLog(); // domain reload
             Application.logMessageReceived += OnLog;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
         }
@@ -53,9 +56,13 @@ namespace UnityAIBridge.Editor
             catch { }
         }
 
-        private static void ClearLog()
+        internal static void ClearLog()
         {
-            try { File.WriteAllText(LogPath, string.Empty); }
+            try
+            {
+                string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                File.WriteAllText(LogPath, $"[{timestamp}] [Log] [UnityAIBridge] Log cleared\n\n");
+            }
             catch { }
         }
 
@@ -64,5 +71,11 @@ namespace UnityAIBridge.Editor
             try { Directory.CreateDirectory(Path.GetDirectoryName(LogPath)); }
             catch { }
         }
+    }
+
+    internal class LogWriterBuildHook : IPreprocessBuildWithReport
+    {
+        public int callbackOrder => 0;
+        public void OnPreprocessBuild(BuildReport report) => LogWriter.ClearLog();
     }
 }

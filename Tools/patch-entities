@@ -2,9 +2,12 @@
 """
 patch-entities <scene> "<filter>" "<patch>"
 patch-entities <scene> --stdin "<patch>"
+patch-entities <scene> --undo
+patch-entities <scene> --history
 
 Applies a patch expression to all entities matching a filter.
 Writes are applied directly to entity JSON files — Unity hot-reloads instantly.
+Every patch is recorded in patch-history.json (last 10 entries) for undo.
 
 Patch operators: =  +=  -=  *=  /=  %=
 
@@ -21,21 +24,30 @@ a filter, making it composable with query-scene and get-visible-objects:
   query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
   get-visible-objects Level_A | patch-entities --stdin Level_A "transform.pos.y += 2"
 
+--undo reverts the most recent patch recorded in patch-history.json.
+
+--history prints a one-line summary of each recorded patch (timestamp, description, count).
+
 Examples:
   patch-entities Level_A "prefab contains Cube" "transform.pos.y += 2"
   patch-entities Level_A "component == Enemy" "transform.rot.y = 0"
   patch-entities Level_A "name contains Wall" "transform.scl.x *= 2"
   patch-entities Level_A "transform.pos.y < 0" "transform.pos.y = 0"
   patch-entities Level_A "prefab contains Coin" "transform.pos.y %= 3"
+  patch-entities Level_A --undo
+  patch-entities Level_A --history
 """
 
 import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 
 SEARCH_ROOT = "Assets/SceneData"
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
+HISTORY_FILE = "patch-history.json"
+HISTORY_LIMIT = 10
 
 
 # ── Scene discovery ────────────────────────────────────────────────────────────
@@ -207,7 +219,6 @@ def apply_op(current, op, value):
     if op == "/=" and v == 0:
         raise ValueError("Division by zero")
     result = {"+=": c + v, "-=": c - v, "*=": c * v, "/=": c / v, "%=": c % v}[op]
-    # Preserve int type when result is whole and both inputs were integers
     if isinstance(current, int) and isinstance(value, int) and result == int(result):
         return int(result)
     return result
@@ -233,19 +244,47 @@ def set_entity_field(entity, field, op, value):
         entity[key] = apply_op(entity.get(key), op, value)
         return True
 
-    # customData fields
     for comp in entity.get("customData", []):
         if field in comp:
             comp[field] = apply_op(comp[field], op, value)
             return True
 
-    # Field not found — only create it for assignment
     if op == "=":
-        # Try to infer location: if it looks like a transform, skip; otherwise top-level
         entity[field] = value
         return True
 
     return False
+
+
+# ── Patch history ──────────────────────────────────────────────────────────────
+
+def load_history(scene_path):
+    path = os.path.join(scene_path, HISTORY_FILE)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(scene_path, history):
+    path = os.path.join(scene_path, HISTORY_FILE)
+    with open(path, "w") as f:
+        json.dump(history, f, indent=2)
+
+
+def push_history(scene_path, description, changes):
+    history = load_history(scene_path)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "description": description,
+        "count": len(changes),
+        "changes": changes,
+    }
+    history.insert(0, entry)
+    save_history(scene_path, history[:HISTORY_LIMIT])
 
 
 # ── Stdin UUID reading ─────────────────────────────────────────────────────────
@@ -258,35 +297,69 @@ def read_uuids_from_stdin():
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
+# ── Subcommands ────────────────────────────────────────────────────────────────
+
+def cmd_history(scene_path):
+    history = load_history(scene_path)
+    if not history:
+        print("No patch history.")
+        return
+    for i, entry in enumerate(history):
+        print(f"[{i}] {entry['timestamp']}  {entry['description']}  ({entry['count']} object(s))")
+
+
+def cmd_undo(scene_path, entities_dir):
+    history = load_history(scene_path)
+    if not history:
+        print("Nothing to undo.")
+        return
+
+    entry = history[0]
+    reverted, errors = 0, 0
+
+    for change in entry.get("changes", []):
+        uuid = change["uuid"]
+        field = change["field"]
+        before = change["before"]
+        entity_path = os.path.join(entities_dir, uuid + ".json")
+        if not os.path.exists(entity_path):
+            print(f"Warning: {uuid} not found, skipping.", file=sys.stderr)
+            errors += 1
+            continue
+        try:
+            with open(entity_path) as f:
+                entity = json.load(f)
+            set_entity_field(entity, field, "=", before)
+            with open(entity_path, "w") as f:
+                json.dump(entity, f, indent=2)
+            reverted += 1
+        except Exception as e:
+            print(f"Warning: {uuid}: {e}", file=sys.stderr)
+            errors += 1
+
+    history.pop(0)
+    save_history(scene_path, history)
+
+    parts = [f"Reverted '{entry['description']}' on {reverted} object(s)."]
+    if errors: parts.append(f"{errors} error(s).")
+    print(" ".join(parts))
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     args = sys.argv[1:]
     use_stdin = "--stdin" in args
-    args = [a for a in args if a != "--stdin"]
+    do_undo = "--undo" in args
+    do_history = "--history" in args
+    args = [a for a in args if a not in ("--stdin", "--undo", "--history")]
 
-    if use_stdin:
-        if len(args) < 2:
-            print("Usage: patch-entities <scene> --stdin \"<patch>\"", file=sys.stderr)
-            sys.exit(1)
-        scene_name, patch_expr = args[0], args[1]
-        filter_ast = None
-    else:
-        if len(args) < 3:
-            print("Usage: patch-entities <scene> \"<filter>\" \"<patch>\"", file=sys.stderr)
-            sys.exit(1)
-        scene_name, filter_expr, patch_expr = args[0], args[1], args[2]
-        try:
-            filter_ast = parse_filter(filter_expr)
-        except Exception as e:
-            print(f"Error parsing filter: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    try:
-        patch_field, patch_op, patch_value = parse_patch(patch_expr)
-    except ValueError as e:
-        print(f"Error parsing patch: {e}", file=sys.stderr)
+    if not args:
+        print("Usage: patch-entities <scene> \"<filter>\" \"<patch>\"", file=sys.stderr)
         sys.exit(1)
+
+    scene_name = args[0]
+    args = args[1:]
 
     scene_path = find_scene_path(scene_name)
     if not scene_path:
@@ -302,13 +375,45 @@ def main():
         print(f"Error: Entities directory not found at {entities_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Collect candidate UUIDs
+    if do_history:
+        cmd_history(scene_path)
+        return
+
+    if do_undo:
+        cmd_undo(scene_path, entities_dir)
+        return
+
+    # Normal patch mode
+    if use_stdin:
+        if len(args) < 1:
+            print("Usage: patch-entities <scene> --stdin \"<patch>\"", file=sys.stderr)
+            sys.exit(1)
+        patch_expr = args[0]
+        filter_ast = None
+    else:
+        if len(args) < 2:
+            print("Usage: patch-entities <scene> \"<filter>\" \"<patch>\"", file=sys.stderr)
+            sys.exit(1)
+        filter_expr, patch_expr = args[0], args[1]
+        try:
+            filter_ast = parse_filter(filter_expr)
+        except Exception as e:
+            print(f"Error parsing filter: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    try:
+        patch_field, patch_op, patch_value = parse_patch(patch_expr)
+    except ValueError as e:
+        print(f"Error parsing patch: {e}", file=sys.stderr)
+        sys.exit(1)
+
     if use_stdin:
         uuids = read_uuids_from_stdin()
     else:
         uuids = [os.path.splitext(f)[0] for f in os.listdir(entities_dir) if f.endswith(".json")]
 
     patched, skipped, errors = 0, 0, 0
+    changes = []
 
     for uuid in uuids:
         entity_path = os.path.join(entities_dir, uuid + ".json")
@@ -324,10 +429,11 @@ def main():
             errors += 1
             continue
 
-        # Apply filter (skip in --stdin mode — caller already filtered)
         if filter_ast and not eval_filter(filter_ast, entity):
             skipped += 1
             continue
+
+        before_value = get_entity_field(entity, patch_field)
 
         try:
             found = set_entity_field(entity, patch_field, patch_op, patch_value)
@@ -345,9 +451,16 @@ def main():
             with open(entity_path, "w") as f:
                 json.dump(entity, f, indent=2)
             patched += 1
+            changes.append({"uuid": uuid, "field": patch_field, "before": before_value})
         except Exception as e:
             print(f"Warning: could not write {uuid}: {e}", file=sys.stderr)
             errors += 1
+
+    if changes:
+        try:
+            push_history(scene_path, patch_expr.strip(), changes)
+        except Exception as e:
+            print(f"Warning: could not write patch history: {e}", file=sys.stderr)
 
     parts = [f"Patched {patched} entity/entities."]
     if errors: parts.append(f"{errors} error(s).")

@@ -14,7 +14,7 @@ namespace UnityAIBridge.Editor
         private const string SkillName = "install-unity-ai-bridge";
         private const string SkillFileName = "SKILL.md";
 
-        [MenuItem("Unity AI Bridge/Setup Claude Code Integration")]
+        [MenuItem("Unity AI Bridge/Setup Claude Code Integration", priority = 1)]
         public static void SetupClaudeCodeIntegration()
         {
             // Locate this package's directory via its assembly

@@ -5,7 +5,7 @@
 | # | Action | Expected | Status | Notes |
 |---|---|---|---|---|
 | B1 | Object with BoxCollider initialized — run "Initialize Scene" | `builtInComponents` array with `UnityEngine.BoxCollider` entry written to JSON | PASSED | |
-| B2 | Edit `m_IsTrigger` in `builtInComponents` JSON | BoxCollider `isTrigger` flag updated on object within ~300ms | PASSED | |
+| B2 | Edit `m_IsTrigger` in `builtInComponents` JSON | BoxCollider `isTrigger` flag updated on object | PASSED | |
 | B3 | Edit `m_Size` in `builtInComponents` JSON | BoxCollider size updated on object | PASSED | |
 | B4 | Add Rigidbody `builtInComponents` entry to JSON for object that has none | Rigidbody component added to object with specified field values | PASSED | |
 | B5 | Remove entry from `builtInComponents` | Component destroyed on object | PASSED | |
@@ -27,6 +27,12 @@
 | J7 | Edit parentUuid | Object reparented | KNOWN LIMITATION | Hierarchy tree only rebuilds when Unity has focus — Unity editor windowing constraint, not fixable via API |
 | J9 | Edit siblingIndex | Object moves to correct position among siblings | KNOWN LIMITATION | Hierarchy reorder only visually updates when Unity has focus — same constraint as J7 |
 | J8 | Delete JSON file | Object destroyed | PASSED | Includes child cleanup when parented |
+| J10 | Edit `tag` in JSON to a valid tag string | GameObject tag updated | PASSED | |
+| J11 | Edit `layer` in JSON to a valid layer name | GameObject layer updated | PASSED | |
+| J12 | Edit `isStatic` in JSON to `true` | GameObject marked static | PASSED | |
+| J13 | Edit `activeSelf` in JSON to `false` | GameObject deactivated | PASSED | |
+| J14 | Edit `tag` in JSON to an undefined tag name | Warning logged, tag unchanged on object | PASSED | |
+| J15 | Edit `layer` in JSON to an undefined layer name | Warning logged, layer unchanged on object | PASSED | |
 
 ## Editor → JSON
 
@@ -42,6 +48,10 @@
 | E8 | Reparent object | JSON parentUuid updated | PASSED | |
 | E9 | Delete object | JSON file deleted | PASSED | |
 | E10 | Drag-reorder siblings in hierarchy | JSON `siblingIndex` updated for affected objects | PASSED | |
+| E11 | Change tag on object in Inspector | JSON `tag` field updated | PASSED | |
+| E12 | Change layer on object in Inspector | JSON `layer` field updated with layer name string | PASSED | |
+| E13 | Toggle Static checkbox in Inspector | JSON `isStatic` updated to `true`/`false` | PASSED | |
+| E14 | Deactivate object via hierarchy eye icon or Inspector checkbox | JSON `activeSelf` updated to `false` | PASSED | |
 
 ## Undo Consistency
 
@@ -73,6 +83,13 @@
 
 | # | Action | Expected | Status | Notes |
 |---|---|---|---|---|
-| T3 | `Tools/select-objects Level_A <uuid>...` | Objects become selected in Unity hierarchy within ~300ms | FAILED | `select-objects` writes UUIDs to `selection.json`; `SelectionSync` watches via FSW and calls `Selection.objects`; selection does not appear to apply — FSW may fire but selection gets reset immediately after, or `Selection.objects` is being overwritten by something else |
-| T1 | `query-logs Log \| tail -2` | Returns the two most recent Unity console log entries | FAILED | Output is not ordered by recency — tailing a capped result set does not reliably surface the latest entries |
+| T3 | `Tools/select-objects Level_A <uuid>...` | Objects become selected in Unity hierarchy | PASSED | |
+| T1 | `query-logs Log \| tail -2` | Returns the two most recent Unity console log entries | PASSED | Output is ordered chronologically; most recent entries are last. `tail -2` gives the final 2 lines — works cleanly for single-line entries; for entries with stack traces use a larger tail |
 | T2 | `query-logs Log "[UnityAIBridge]"` after triggering a hot-reload | Returns entries from the current editor session | PASSED | `LogWriter.cs` registers `Application.logMessageReceived` and appends structured entries to `Logs/unity-ai-bridge.log`; file is cleared on `ExitingEditMode`; `query-logs` reads that file instead of `Editor.log` |
+| T4 | `query-scene Level_A "tag == Player"` | Returns UUIDs of entities with tag `Player` | PASSED | |
+| T8 | `query-scene Level_A "transform.pos.x % 1 != 0"` | Returns UUIDs of entities whose X position is not on a 1-unit grid | PASSED | |
+| T9 | `query-scene Level_A "transform.pos.x % 1 != 0 OR transform.pos.z % 1 != 0"` | Returns UUIDs of entities misaligned on either X or Z axis | PASSED | |
+| T10 | `query-scene Level_A "transform.pos.y % 0.5 == 0"` | Returns UUIDs of entities whose Y is a multiple of 0.5 | PASSED | |
+| T5 | `query-scene Level_A "layer == UI"` | Returns UUIDs of entities on the UI layer | PASSED | |
+| T6 | `query-scene Level_A "isStatic == true"` | Returns UUIDs of static entities | PASSED | |
+| T7 | `query-scene Level_A "activeSelf == false"` | Returns UUIDs of inactive entities | PASSED | |

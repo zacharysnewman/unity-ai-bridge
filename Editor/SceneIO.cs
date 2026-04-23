@@ -182,6 +182,7 @@ namespace UnityAIBridge.Editor
                 for (int i = 0; i < entityData.Count; i++)
                 {
                     var (uuid, data, go) = entityData[i];
+                    ApplyGoProperties(go, data);
                     ApplyTransform(go, data["transform"] as JObject);
                     ReconcileComponents(go, data["customData"] as JArray);
                     BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
@@ -292,6 +293,64 @@ namespace UnityAIBridge.Editor
             if (scl != null && scl.Count == 3)
                 go.transform.localScale = new Vector3(
                     scl[0].Value<float>(), scl[1].Value<float>(), scl[2].Value<float>());
+        }
+
+        private static void ApplyGoProperties(GameObject go, JObject data)
+        {
+            var so = new SerializedObject(go);
+            bool changed = false;
+
+            string tag = data.Value<string>("tag");
+            if (!string.IsNullOrEmpty(tag))
+            {
+                var prop = so.FindProperty("m_TagString");
+                if (prop != null && prop.stringValue != tag)
+                {
+                    if (System.Array.IndexOf(UnityEditorInternal.InternalEditorUtility.tags, tag) >= 0)
+                    {
+                        prop.stringValue = tag;
+                        changed = true;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[UnityAIBridge] Tag '{tag}' is not defined. Skipping.");
+                    }
+                }
+            }
+
+            string layerName = data.Value<string>("layer");
+            if (!string.IsNullOrEmpty(layerName))
+            {
+                int layerIndex = LayerMask.NameToLayer(layerName);
+                if (layerIndex >= 0)
+                {
+                    var prop = so.FindProperty("m_Layer");
+                    if (prop != null && prop.intValue != layerIndex)
+                    {
+                        prop.intValue = layerIndex;
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[UnityAIBridge] Layer '{layerName}' is not defined. Skipping.");
+                }
+            }
+
+            bool? isStatic = data.Value<bool?>("isStatic");
+            if (isStatic.HasValue && go.isStatic != isStatic.Value)
+            {
+                GameObjectUtility.SetStaticEditorFlags(go,
+                    isStatic.Value ? (StaticEditorFlags)~0 : 0);
+                changed = true;
+            }
+
+            if (changed)
+                so.ApplyModifiedPropertiesWithoutUndo();
+
+            bool? activeSelf = data.Value<bool?>("activeSelf");
+            if (activeSelf.HasValue && go.activeSelf != activeSelf.Value)
+                go.SetActive(activeSelf.Value);
         }
 
         // ─── customData serialization ─────────────────────────────────────────────
@@ -470,6 +529,10 @@ namespace UnityAIBridge.Editor
                 ["uuid"] = uuid,
                 ["name"] = go.name,
                 ["prefabPath"] = GetPrefabPath(go),
+                ["tag"] = go.tag,
+                ["layer"] = LayerMask.LayerToName(go.layer),
+                ["isStatic"] = go.isStatic,
+                ["activeSelf"] = go.activeSelf,
             };
 
             if (parentSync != null)
@@ -656,6 +719,7 @@ namespace UnityAIBridge.Editor
             if (siblingIndex >= 0)
                 go.transform.SetSiblingIndex(siblingIndex);
 
+            ApplyGoProperties(go, data);
             ApplyTransform(go, data["transform"] as JObject);
             ReconcileComponents(go, data["customData"] as JArray);
             BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);

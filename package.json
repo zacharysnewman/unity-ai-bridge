@@ -3,7 +3,7 @@
   "displayName": "Unity AI Bridge",
   "version": "1.0.0",
   "unity": "6000.0",
-  "description": "Bidirectional live sync between Unity Editor objects and human- and AI-readable JSON files on disk. Changes in the Editor write to JSON within 300ms; changes to JSON are reflected in Unity instantly via FileSystemWatcher.",
+  "description": "Bidirectional live sync between Unity Editor objects and human- and AI-readable JSON files on disk. Changes in the Editor write to JSON automatically; changes to JSON are reflected in Unity instantly via FileSystemWatcher.",
   "author": {
     "name": "zacharysnewman",
     "url": "https://github.com/zacharysnewman"

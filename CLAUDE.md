@@ -112,6 +112,13 @@ Field paths are the same as `query-scene`. Composes with `--stdin`:
 query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
 ```
 
+Every patch is automatically recorded in `patch-history.json` (last 10 entries). Use `--history` to review recent changes and `--undo` to revert the most recent patch — works regardless of current selection or camera position:
+
+```bash
+patch-entities Level_A --history   # one-line summary per recorded patch
+patch-entities Level_A --undo      # revert the most recent patch
+```
+
 The `[scene]` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
 
 ---

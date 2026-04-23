@@ -116,8 +116,8 @@ def main():
         if substring and substring.lower() not in entry.lower():
             continue
         results.append(entry)
-        if len(results) >= RESULT_CAP:
-            break
+
+    results = results[-RESULT_CAP:]
 
     if not results:
         print(f"No {log_type} entries found.", file=sys.stderr)
