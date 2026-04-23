@@ -189,7 +189,7 @@ When making multiple changes, order matters:
 
 ### When not to edit JSON
 
-- **During Play Mode** — the write pipeline is suspended; changes will be overwritten when Play Mode exits
+- **During Play Mode** — the write pipeline and hot-reload pipeline are both suspended; JSON changes made during play won't be picked up until you use *Force Reload Scene* after exiting
 - **To change built-in component values** (Rigidbody, Collider, MeshRenderer, etc.) — these come from the prefab and are not in the JSON
 
 ---

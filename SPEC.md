@@ -8,9 +8,22 @@
 
 ## 1. Overview
 
-This document defines a custom, text-based, AI-friendly scene format for Unity. The system completely bypasses Unity's native `.unity` scene serialization in favor of a **Live-Sync Disk Model**.
+This system is a **bidirectional synchronization system** that keeps two representations of the same data in perfect agreement at all times during development.
 
-The file system (JSON) is the **absolute Source of Truth**. Unity serves strictly as a runtime visualizer and editor interface. Changes in the Unity Editor are automatically written to disk via a debounced file stream, and external changes to JSON files (e.g., by an LLM or text editor) are hot-reloaded into the Unity hierarchy instantly.
+**System Model (MVP):**
+- **Model** — JSON files on disk
+- **View** — Unity Scene hierarchy
+- **Controller** — The sync system (Editor scripts + FileSystemWatcher)
+
+The goal is not to bypass Unity's systems — it is to ensure the JSON and the Unity Scene are perfect mirrors of each other. Unity's native scene objects, prefab system, baked lighting, and build pipeline are preserved intact. The JSON layer is a development-time overlay, invisible to the shipped game.
+
+This is an **AI-first workflow.** Because entities are plain JSON files, AI tools can read, reason about, and modify scene data without a running Unity process. Because the Unity Scene is kept in perfect sync, the developer always sees an accurate visual representation of whatever the AI has written.
+
+### The Invariant
+
+> At any point in Editor Mode, the state of every `GameObject` in the scene is exactly the data described by its corresponding JSON entity file, and vice versa.
+
+This invariant is maintained automatically. Neither developers nor AI tools need to manually trigger a sync; the system enforces it continuously.
 
 ---
 
@@ -18,7 +31,7 @@ The file system (JSON) is the **absolute Source of Truth**. Unity serves strictl
 
 | Principle | Description |
 |---|---|
-| **Shell Scene** | The native `.unity` file contains exactly one persistent object (`SceneDataManager`). All other objects are ephemeral, flagged with `HideFlags.DontSave`. `DontSave` is a composite of `DontSaveInEditor`, `DontSaveInBuild`, and `DontUnloadUnusedAsset` — it affects persistence only, not editor interactivity. Objects with this flag are fully selectable, moveable, and editable by standard and third-party editor tools. |
+| **Shell Scene** | The native `.unity` file contains `SceneDataManager` and all entity GameObjects as normal, persistent scene objects. Entities are saved into the `.unity` file by Unity's standard scene serialization and are fully included in player builds. |
 | **Decentralized Entities** | The scene is a directory of individual JSON files — one per entity/prefab instance. AI can grep and edit specific chunks efficiently. |
 | **Live Database Workflow** | There is no traditional "Save Scene" action. Memory and disk state are kept in constant parity. |
 | **Human/AI Readable Types** | Complex Unity types (`Quaternion`, `Color`) are serialized into flat, readable formats (Euler degrees, RGB arrays) to minimize token count and cognitive load. |
@@ -35,6 +48,8 @@ Each logical scene maps to a directory containing a manifest, an entities folder
 ```
 Assets/SceneData/Level_01/
 ├── manifest.json            # Scene metadata (name, schema version)
+├── index.ndjson             # Sidecar index — maintained automatically, optimized for reads
+├── selection.json           # Bidirectional selection sync (read/written by CLI tools + Unity)
 ├── Commands/                # Short-lived command files (auto-deleted after execution)
 └── Entities/                # One file per object
     ├── 5f3a1b2c...json      # UUID v4 filename matching the entity's uuid field
@@ -42,6 +57,17 @@ Assets/SceneData/Level_01/
 ```
 
 The `Commands/` directory is watched by the same `FileSystemWatcher` as `Entities/`. Command files are read and executed by the package, then deleted immediately.
+
+**`index.ndjson`** is a sidecar index maintained as a side-effect of all entity create/update/delete operations, and regenerated in full on scene load. It is never edited manually. Two line types only — an identity line and a component line per component:
+
+```
+{"uuid":"0eb2de67-...","name":"GravityLauncher_32","prefab":"primitive/Cube","parent":"4b0f504e-...","siblingIndex":2}
+{"uuid":"0eb2de67-...","component":"MyGame.GravityLauncher"}
+```
+
+Every line carries the UUID so any grep result is self-contained. This enables O(1) identity lookups, type queries, and parent/child lookups without opening entity files. See §10 for the three-layer query model.
+
+**`selection.json`** mirrors the Unity Editor selection as a JSON array of UUIDs. Unity writes it on `Selection.selectionChanged`; external writes trigger `Selection.objects` to update. CLI tools read and write it to get/set the editor selection without polling.
 
 ### 3.2 Manifest Schema
 
@@ -98,7 +124,8 @@ Uses **Token-Oriented Object Notation (TOON)** principles to minimize verbosity.
 | `transform.pos` | `[x, y, z]` | Yes | **Local-space** position in meters when `parentUuid` is set; world-space when at root. |
 | `transform.rot` | `[x, y, z]` | Yes | **Local-space** Euler angles in degrees when `parentUuid` is set; world-space when at root. Values match what Unity's Inspector displays. Round-trip via `Quaternion.Euler(x,y,z)` ↔ `quaternion.eulerAngles`. Unity applies Euler rotations internally in ZXY order, but the stored `[x,y,z]` values are the same Inspector-visible numbers — no manual reordering needed. |
 | `transform.scl` | `[x, y, z]` | Yes | Local scale (always local, consistent with Unity). |
-| `customData` | array | No | Ordered list of serialized component entries. Each entry has a `type` field (fully-qualified class name) plus inline serialized fields. See §6.1. |
+| `builtInComponents` | array | No | Ordered list of serialized built-in Unity component entries (BoxCollider, Rigidbody, etc.). Each entry has a `type` field (e.g. `"UnityEngine.BoxCollider"`) plus serialized properties using Unity's internal property names (`m_Size`, `m_IsTrigger`). See §3.5. |
+| `customData` | array | No | Ordered list of serialized custom MonoBehaviour entries. Each entry has a `type` field (fully-qualified class name) plus inline serialized fields. See §6.1. |
 
 #### Hierarchy & Parenting
 
@@ -126,6 +153,60 @@ Non-prefab primitive objects use a reserved `prefabPath` convention instead of a
 
 The prefix `primitive/` is case-sensitive. These are instantiated via `GameObject.CreatePrimitive()` instead of `PrefabUtility.InstantiatePrefab()`.
 
+### 3.5 `builtInComponents` Serialization
+
+Built-in Unity components (BoxCollider, Rigidbody, AudioSource, Light, Camera, etc.) are serialized via `SerializedObject`/`SerializedProperty` — the same mechanism Unity's Inspector uses. Property names use Unity's internal serialized names, which are stable across Unity versions and match what `SerializedProperty.name` returns.
+
+```json
+"builtInComponents": [
+  {
+    "type": "UnityEngine.BoxCollider",
+    "m_Size": [1.0, 2.0, 1.0],
+    "m_Center": [0.0, 0.0, 0.0],
+    "m_IsTrigger": false
+  },
+  {
+    "type": "UnityEngine.Rigidbody",
+    "m_Mass": 1.0,
+    "m_Drag": 0.0,
+    "m_AngularDrag": 0.05,
+    "m_UseGravity": true,
+    "m_IsKinematic": false
+  }
+]
+```
+
+**Exclusion rules** — the following component types are never written to `builtInComponents`:
+
+| Excluded type | Reason |
+|---|---|
+| `Transform` | Handled by the top-level `transform` field |
+| `EntitySync` | Internal bridge component |
+| Any `MonoBehaviour` subclass | Handled by `customData` |
+| `Renderer` and all subtypes | Material/mesh asset references not yet supported |
+| `MeshFilter` | Mesh asset reference not yet supported |
+
+**`SerializedPropertyType` → JSON mapping:**
+
+| SerializedPropertyType | JSON representation |
+|---|---|
+| `Integer`, `LayerMask`, `Enum`, `Character` | `number` |
+| `Boolean` | `bool` |
+| `Float` | `number` |
+| `String` | `string` |
+| `Vector2`, `Vector3`, `Vector4` | `[x, y, z]` array |
+| `Quaternion` | `[x, y, z, w]` array |
+| `Color` | `[r, g, b, a]` array |
+| `Rect` | `{ "x", "y", "width", "height" }` |
+| `Bounds` | `{ "center": [x,y,z], "size": [x,y,z] }` |
+| `ObjectReference` | asset path string via `AssetDatabase.GetAssetPath`, or `null` |
+| `Generic` (nested struct) | recurse into child properties |
+| Array | JSON array (capped at 256 elements) |
+
+Properties not in the table (e.g. `AnimationCurve`, `Gradient`, `ManagedReference`) are silently skipped. `m_Script` and editor-UI-only fold-state properties are always skipped.
+
+**The array is treated as the complete truth**, consistent with `customData`. Built-in components present on a GameObject but absent from `builtInComponents` in the JSON will be removed during reconciliation. To remove a built-in component, delete its entry.
+
 ---
 
 ## 4. System Components
@@ -143,8 +224,8 @@ The prefix `primitive/` is case-sensitive. These are instantiated via `GameObjec
 ### 4.2 `EntitySync` (MonoBehaviour)
 
 - Attached dynamically to every spawned GameObject at runtime.
-- Holds the object's `uuid` string.
-- Maintains an `isDirty` flag used by the write pipeline to gate disk writes.
+- Holds the object's `uuid` string (needed at runtime for `EntityReference` resolution).
+- Maintains an `isDirty` flag used by the write pipeline to gate disk writes. This flag is Editor-only behavior; a `#if UNITY_EDITOR` guard should be added to avoid dead weight in player builds.
 
 ### 4.3 `LiveSyncController` (Editor Script)
 
@@ -225,29 +306,31 @@ AI tools generate a fresh UUID v4, write the complete file directly, and use tha
 
 ## 5. Workflows & CRUD Operations
 
-### 5.1 Bootstrapping (Initialization)
+### 5.1 Bootstrapping (Reconciliation)
 
-Triggered by `[InitializeOnLoad]` or when the shell scene is opened. Loading is **asynchronous** and displays a native Unity progress panel to remain non-blocking for large scenes.
+Triggered by `[InitializeOnLoad]` or when the scene is opened. Loading is **asynchronous** (`ReconcileScene`) and non-destructive — existing entities are updated in-place rather than destroyed and re-created. Entities already present in the scene (from a prior session save) are reused.
 
-1. Read and validate `manifest.json`. If `schemaVersion` does not match the expected version, abort loading and surface an error — no automatic migration is attempted.
-2. Collect all files in `Entities/` into a load queue.
-3. **Async loop — pass 1 (instantiate)** — for each entity file:
-   a. Instantiate the prefab (`PrefabUtility.InstantiatePrefab`) or primitive (`GameObject.CreatePrimitive`).
-   b. Attach `EntitySync`, assign the `uuid`.
-   c. Apply `gameObject.hideFlags = HideFlags.DontSave`.
-   d. Register in the UUID → GameObject lookup table.
-4. **Pass 2 (wire hierarchy)** — resolve all `parentUuid` references by calling `transform.SetParent()`. Must complete before transforms are applied, because `pos` and `rot` are local-space and meaningless until the parent is established. Mirrors Unity's own load order (`m_Father` is wired before positions are interpreted).
-5. **Pass 3 (apply data)** — for each entity, apply `transform` (pos, rot, scl) and `customData` fields via reflection.
-6. Close the progress panel.
+1. Rebuild the UUID → GameObject registry from existing scene objects (fast, no file I/O). JSON wins on any conflict.
+2. Read and validate `manifest.json`. If `schemaVersion` does not match the expected version, abort loading and surface an error — no automatic migration is attempted.
+3. Collect all files in `Entities/` into a load queue.
+4. **Async loop — pass 1 (reconcile)** — for each entity file:
+   a. If a GameObject with the matching UUID already exists, update it in-place.
+   b. If not, instantiate the prefab (`PrefabUtility.InstantiatePrefab`) or primitive (`GameObject.CreatePrimitive`), attach `EntitySync`, assign the `uuid`, and register in the lookup table.
+5. **Pass 2 (wire hierarchy)** — resolve all `parentUuid` references via `transform.SetParent()`. Must precede transform application because `pos` and `rot` are local-space relative to the parent.
+6. **Pass 3 (apply data)** — for each entity, apply `transform` (pos, rot, scl) and `customData` fields via reflection.
+7. Prune orphan entities: destroy any scene object with an `EntitySync` component that has no corresponding JSON file.
+8. Close the progress panel.
 
 ### 5.2 Unity Editor → JSON (Write Pipeline)
 
 Managed by `LiveSyncController` intercepting editor change events. All writes use the debounce final-state model: only the state present when the ~300 ms timer fires is written.
 
+> **Design decision:** `ObjectChangeEvents.changesPublished` is used for Flow B rather than `AssetModificationProcessor` (scene saves). `ObjectChangeEvents` is more granular and real-time — it fires per-object rather than on scene save, so changes propagate to JSON immediately without requiring a `Ctrl+S`.
+
 | Operation | Trigger | Mechanism |
 |---|---|---|
 | **Update** | `Transform.hasChanged` or any Inspector field change | Debounce timer (300 ms). Final state at timer expiry is written to `[UUID].json`. Intermediate states are not written. |
-| **Create (human)** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`, apply `DontSave` flag. `EntityAssetPostprocessor` (§4.5) assigns UUID and writes file. |
+| **Create (human)** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`. `EntityAssetPostprocessor` (§4.5) assigns UUID and writes file. |
 | **Create (AI)** | Direct file write | AI generates a fresh UUID v4, writes the complete entity JSON file, then uses that UUID in any subsequent cross-referencing files. |
 | **Delete** | `ObjectChangeEvents` (object destroyed) | Intercept deletion. Identify UUID via `EntitySync`, call `File.Delete([UUID].json)`. |
 | **Duplicate** | Ctrl+D (clone created) | `EntityAssetPostprocessor` detects filename/UUID mismatch on the cloned file and assigns a fresh UUID automatically. |
@@ -265,17 +348,18 @@ Handles external edits from AI tools, text editors, or Git operations.
 
 ### 5.4 Play Mode
 
+Entity GameObjects are normal persistent scene objects. They are **not** destroyed on Play Mode entry. Unity runs the scene natively with all entities intact.
+
 On **Enter Play Mode**:
-- All `DontSave` entities are destroyed from the hierarchy.
-- Unity enters Play Mode in the shell scene with no managed objects.
+- The `FileSystemWatcher` is stopped.
+- The write pipeline (Unity → JSON) is suspended. Inspector changes during play are not written to disk.
 
 On **Exit Play Mode**:
-- The bootstrap sequence (§5.1) runs again, reinstantiating all entities from disk.
-- This provides the most authentic Play Mode experience, identical to what a freshly-opened scene would produce.
+- Unity's standard Play Mode revert restores any in-editor state changes made during play.
+- The `LiveSyncController` rebuilds the UUID → GameObject registry from the existing scene objects and restarts the `FileSystemWatcher`.
+- JSON files changed externally during Play Mode are **not** automatically applied on exit (the watcher was stopped). Use *Unity AI Bridge → Force Reload Scene* to apply any such changes.
 
-The JSON files on disk are **never written to during Play Mode**. The `LiveSyncController` suspends the write pipeline for the duration.
-
-> **Known incompatibility:** If *Project Settings → Editor → Enter Play Mode Settings → Disable Domain Reload* is enabled, Unity does not perform a domain reload on Play Mode entry. `DontSave` objects are **not** automatically destroyed, and the re-bootstrap on exit may produce duplicates. This system requires domain reload to be **enabled** (Unity's default). Projects that have disabled it for faster iteration are not supported.
+The JSON files on disk are **never read or written during Play Mode**.
 
 ### 5.5 Scene Lifecycle (Rename & Delete)
 
@@ -322,7 +406,7 @@ Prefab propagation fires Unity change events that `LiveSyncController` will inte
 
 The system serializes **all fields that Unity would normally serialize** on custom `MonoBehaviour` components: public fields and private fields marked `[SerializeField]`. No extra attribute is required.
 
-**Which components are serialized:** only components where `component is MonoBehaviour` is true. This mirrors Unity's own class ID system — all custom scripts are MonoBehaviour (Unity class ID 114); built-in types (BoxCollider = 65, Rigidbody = 54, MeshRenderer = 23, etc.) are distinct classes and are excluded. `SceneIO` enumerates serializable components via `gameObject.GetComponents<MonoBehaviour>()`. Built-in components derive their state entirely from the source prefab and are never written to `customData`.
+**Which components are serialized here:** only components where `component is MonoBehaviour` is true. This mirrors Unity's own class ID system — all custom scripts are MonoBehaviour (Unity class ID 114); built-in types (BoxCollider = 65, Rigidbody = 54, MeshRenderer = 23, etc.) are distinct classes and are excluded from `customData`. Built-in components are serialized separately in `builtInComponents` (§3.5) via `SerializedObject`. `SceneIO` enumerates `customData` components via `gameObject.GetComponents<MonoBehaviour>()`.
 
 `customData` is an **ordered array** of component entries. Each entry contains a `type` field followed by the component's serialized fields inline.
 
@@ -402,26 +486,45 @@ This system is distributed as a **Unity Package Manager (UPM) package**, importa
 ```
 com.zacharysnewman.unity-ai-bridge/
 ├── package.json                        # UPM manifest
+├── SPEC.md                             # This document
 ├── Runtime/
-│   ├── SceneDataManager.cs
-│   ├── EntitySync.cs
-│   └── EntityReference.cs
+│   ├── SceneDataManager.cs             # UUID→GameObject registry; sceneDataPath computation
+│   ├── EntitySync.cs                   # uuid + isDirty flag on every entity GameObject
+│   └── EntityReference.cs             # Serializable struct for cross-entity references
 ├── Editor/
-│   ├── LiveSyncController.cs
-│   ├── SceneIO.cs
-│   └── EntityAssetPostprocessor.cs
-├── Samples~/
-│   └── DemoScene/                      # Optional importable demo
-└── SPEC.md
+│   ├── SceneIO.cs                      # Serialization engine (ReconcileScene, WriteEntity, etc.)
+│   ├── LiveSyncController.cs          # [InitializeOnLoad]; FSW; write pipeline; Play Mode hooks
+│   ├── EntityAssetPostprocessor.cs    # UUID injection for human-created entity files
+│   ├── BuiltInComponentSerializer.cs  # SerializedObject/SerializedProperty serialization
+│   ├── IndexWriter.cs                 # Maintains index.ndjson as side-effect of entity ops
+│   ├── EditorStateSync.cs             # Selection sync (selection.json ↔ Selection.objects)
+│   ├── LogWriter.cs                   # Writes structured log entries for query-logs
+│   ├── SceneAssetModificationProcessor.cs  # Keeps data dir in sync on scene rename/delete
+│   └── AIBridgeInstaller.cs           # SceneDataManagerWindow setup UI
+├── Tools/                             # CLI scripts (file-based, no server)
+│   ├── query-scene                    # Filter entities by field criteria
+│   ├── query-logs                     # Read Unity Editor.log filtered by type
+│   ├── get-selected-entities          # Get UUID array for current selection
+│   ├── select-entities                # Set Unity Editor selection by UUID
+│   ├── get-scene-path                 # Get active scene asset path
+│   ├── get-camera                     # Get scene view camera pos/rot
+│   ├── get-visible-entities           # Get UUIDs visible in scene view frustum
+│   ├── patch-entities                 # Batch-apply field mutations to matching entities
+│   ├── create-entities                # Create new entities and return their UUIDs
+│   └── delete-entities                # Delete entities by UUID
+├── Schemas/
+│   ├── entity.schema.json             # JSON Schema Draft-07 for entity files
+│   └── manifest.schema.json           # JSON Schema Draft-07 for manifest.json
+└── Samples~/
+    └── DemoScene/                      # Optional importable demo
 ```
 
 - **Runtime assembly** (`Runtime/`): `SceneDataManager`, `EntitySync`, and `EntityReference` — safe to include in builds.
-- **Editor assembly** (`Editor/`): `LiveSyncController` and `SceneIO` — stripped from player builds automatically.
+- **Editor assembly** (`Editor/`): all Editor scripts — stripped from player builds automatically.
+- **Tools** (`Tools/`): standalone CLI scripts invoked via the Bash tool. File-based — no HTTP server, no MCP server, no persistent process. Exit when done.
 - **Dependency**: Newtonsoft.Json (via Unity's `com.unity.nuget.newtonsoft-json` package).
-- **Distribution**: Via **Git URL** in Unity Package Manager. Users add the package by pointing UPM at the GitHub repository URL. No Asset Store or OpenUPM registry required.
+- **Distribution**: Via **Git URL** in Unity Package Manager.
 - **Package name**: `com.zacharysnewman.unity-ai-bridge`
-- **Display name**: Unity AI Bridge
-- **Initial version**: 1.0.0
 
 ---
 
@@ -436,13 +539,95 @@ Two validation mechanisms are planned:
 
 ## 9. Non-Goals
 
-The following are explicitly out of scope for this architecture:
+**This system is not:**
 
-- Runtime (built player) scene loading — this system targets the **Editor workflow** only.
-- Serializing environmental settings (Skybox, lighting, fog) — these remain under normal Unity workflows.
-- Replacing Unity's Addressables or AssetBundle systems.
-- Serializing Unity-native component overrides (Colliders, Rigidbodies, etc.) beyond what the prefab defines.
-- A batch-write API — AI tools (e.g., Claude Code) can already write multiple files in a single operation; no system-level batch endpoint is needed.
+- **A runtime scene loader.** JSON files are not read at runtime. The shipped game has no awareness that JSON files ever existed.
+- **A replacement for Unity's prefab system.** Prefabs are still used as the source for all entity types; the JSON layer rides on top.
+- **A replacement for Unity's native serialization.** Built-in components are serialized where useful (§3.5), but the prefab remains the authoritative source for component defaults.
+- **A build dependency.** JSON files live in `Assets/SceneData/`, not `Resources/` or `StreamingAssets/`, so Unity excludes them from builds automatically.
+- **An Addressables replacement.** Asset loading, bundles, and memory management are untouched.
+- **A batch-write API.** AI tools can already write multiple files in a single shell operation; no system-level batch endpoint is needed.
+- **An environmental settings editor.** Skybox, lighting, fog, `RenderSettings`, and `LightmapSettings` remain under Unity's normal Environment Lighting window.
 
 ---
+
+## 10. CLI Tools
+
+All tools are **file-based** — no HTTP server, no MCP server, no persistent process. They are standalone scripts in `Tools/` invoked via shell. Each exits when done.
+
+### Bounded-Output Principle
+
+Every tool enforces a hard internal result cap that cannot be overridden by the caller. This is the primary design constraint across all tools — unbounded output (log dumps, full scene listings) is a primary source of AI context overload. Tools return UUIDs or short summaries; callers read entity files directly for detail.
+
+### Query Architecture: Three-Layer Model
+
+The per-entity file layout is optimized for writes (one FSW event per change, atomic per-entity, git-friendly) but hostile to reads — every scene-wide query would require scanning all N entity files. `grep` alone fails at scale: `ARG_MAX` limits are hit at ~578 files, and multiline JSON separates the UUID and matched value onto different lines.
+
+The solution is a **sidecar `index.ndjson`** (§3.1) plus a three-layer query model:
+
+| Layer | Mechanism | When to use |
+|---|---|---|
+| **1 — Index grep** | `grep` against `index.ndjson` | Identity lookups, type/parent/prefab membership — O(1), single file |
+| **2 — Query tool** | `Tools/query-scene` | Value comparisons, compound filters, spatial queries — reads entity files only for matches |
+| **3 — Entity file** | Direct `Read` of `Entities/<uuid>.json` | Full detail for a specific, already-identified entity |
+
+### Tool Reference
+
+| Tool | Purpose |
+|---|---|
+| `query-scene <scene> "<filter>"` | Filter entities by field criteria; returns one UUID per line |
+| `query-logs <type> [substring]` | Read Unity Editor.log filtered by type (`Error`, `Warning`, `Log`, `Exception`, `Assert`) |
+| `get-selected-entities [scene]` | Get UUID array for the current Unity Editor selection |
+| `select-entities [scene] <uuid>...` | Set Unity Editor selection by UUID (or `--stdin`) |
+| `get-scene-path [scene]` | Get active scene asset path |
+| `get-camera [scene]` | Get scene view camera position and rotation |
+| `get-visible-entities [scene]` | Get UUIDs of entities visible in the scene view frustum |
+| `patch-entities <scene> "<filter>" "<patch>"` | Batch-apply a field mutation to all matching entities |
+| `create-entities <scene> '<spec>'` | Create new entities and return their UUIDs |
+| `delete-entities <scene> <uuid>...` | Delete entities by UUID |
+
+`query-scene` filter operators: `== != >= <= > < contains AND OR` — modulo: `field % divisor op value`.
+`patch-entities` patch operators: `= += -= *= /= %=`.
+
+### Bidirectional Selection Sync
+
+`selection.json` is maintained in both directions:
+
+| Direction | Trigger | Action |
+|---|---|---|
+| Unity → file | `Selection.selectionChanged` fires | Write UUID array to `selection.json` |
+| File → Unity | FSW detects write to `selection.json` | Call `Selection.objects` with resolved GameObjects |
+
+`selection.json` is always current. Read it to get selection, write it to set selection. No request/response cycle.
+
+---
+
+## 11. Known Limitations
+
+| Limitation | Detail |
+|---|---|
+| **Undo/Redo** | Hot-reload changes (JSON → Unity) use `ApplyModifiedPropertiesWithoutUndo` — component edits, reparents, and sibling reorders initiated from JSON are not undoable. CLI tool `patch-entities` maintains its own `patch-history.json` (last 10 entries) with `--undo` support, separate from Unity's Ctrl+Z. |
+| **Same-type multi-component reordering** | The Nth `customData` entry for a given `type` maps to the Nth result of `GetComponents<T>()`. Reordering same-type components via the Inspector drag handles breaks this mapping on next load. Accepted trade-off. |
+| **OS-level scene moves** | `SceneAssetModificationProcessor` only intercepts Project-window operations. Moving or renaming scene files via the OS (Finder, `mv`) bypasses it; the data directory must be moved manually and `AssetDatabase.Refresh` called. |
+| **Multi-scene `Instance` singleton** | `SceneDataManager.Instance` returns the last-enabled manager. Cross-scene `EntityReference` resolution via `Instance` only searches one scene's registry. Hold a direct reference to the specific scene's `SceneDataManager` for cross-scene lookups. |
+| **`patch-entities` write path** | `patch-entities` writes to `customData` entries only; it cannot patch fields inside `builtInComponents`. Workaround: edit the entity JSON file directly. |
+| **`builtInComponents` array cap** | Arrays on built-in components with more than 256 elements are silently truncated during serialization. |
+| **Schema migration** | Version mismatch between `manifest.json` `schemaVersion` and the package's expected version aborts loading entirely. No automatic migration; requires manual update. |
+| **`isDirty` in builds** | `EntitySync.isDirty` is in the Runtime assembly without a `#if UNITY_EDITOR` guard — dead weight in player builds. Guarding it is a pending improvement. |
+
+---
+
+## 12. Architectural Rationale
+
+| Property | Benefit |
+|---|---|
+| JSON as the Model | AI tools read, diff, and write scene data without a running Unity process |
+| Unity Scene as the View | Developers see accurate visual feedback instantly; all Unity tooling works normally |
+| Per-entity files | Git diffs are per-object; no merge conflicts from a monolithic binary scene file |
+| UUID identity | Stable cross-session, cross-machine object identity without relying on names or indices |
+| `parentUuid` on child (not `children` on parent) | Each entity file is self-contained; reparenting edits only the child file |
+| Editor-only sync machinery | Zero runtime cost; all sync code is stripped from builds |
+| Persistent GameObjects | Entities survive Play Mode, are included in player builds, support baked lighting and navigation baking |
+| Sidecar index | O(1) membership/type lookups without opening entity files; self-heals on scene load |
+| File-based CLI tools | No server lifecycle to manage; tools compose via shell pipes |
 
