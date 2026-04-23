@@ -184,7 +184,7 @@ namespace UnityAIBridge.Editor
                     var (uuid, data, go) = entityData[i];
                     ApplyGoProperties(go, data);
                     ApplyTransform(go, data["transform"] as JObject);
-                    ReconcileComponents(go, data["customData"] as JArray);
+                    ReconcileComponents(go, data["customData"] as JArray, manager);
                     BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
                     EditorUtility.DisplayProgressBar("Unity AI Bridge", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
                 }
@@ -360,7 +360,7 @@ namespace UnityAIBridge.Editor
         /// Components in the JSON are applied (added if missing, fields updated).
         /// MonoBehaviours on the GO that are absent from the JSON are removed.
         /// </summary>
-        private static void ReconcileComponents(GameObject go, JArray customData)
+        private static void ReconcileComponents(GameObject go, JArray customData, SceneDataManager manager = null)
         {
             // Build the set of types declared in JSON (with per-type counts for multi-component)
             var jsonTypeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -426,11 +426,11 @@ namespace UnityAIBridge.Editor
                     component = (MonoBehaviour)go.AddComponent(componentType);
                 }
 
-                DeserializeComponentFields(component, entry);
+                DeserializeComponentFields(component, entry, manager);
             }
         }
 
-        private static void DeserializeComponentFields(MonoBehaviour component, JObject entry)
+        private static void DeserializeComponentFields(MonoBehaviour component, JObject entry, SceneDataManager manager = null)
         {
             Type type = component.GetType();
             foreach (var prop in entry)
@@ -450,6 +450,28 @@ namespace UnityAIBridge.Editor
                             Debug.LogWarning($"[UnityAIBridge] ScriptableObject asset not found at '{assetPath}' for field {prop.Key} on {type.Name}");
                         else
                             field.SetValue(component, asset);
+                    }
+                    continue;
+                }
+
+                if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
+                    typeof(Component).IsAssignableFrom(field.FieldType))
+                {
+                    if (prop.Value is JObject refObj && refObj["targetUUID"] != null && manager != null)
+                    {
+                        string targetUuid = refObj["targetUUID"].Value<string>();
+                        GameObject targetGo = manager.GetByUUID(targetUuid);
+                        if (targetGo != null)
+                        {
+                            if (typeof(GameObject).IsAssignableFrom(field.FieldType))
+                                field.SetValue(component, targetGo);
+                            else
+                                field.SetValue(component, targetGo.GetComponent(field.FieldType));
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[UnityAIBridge] Could not resolve targetUUID '{targetUuid}' for field {prop.Key} on {type.Name} — entity may not be loaded yet");
+                        }
                     }
                     continue;
                 }
@@ -626,6 +648,25 @@ namespace UnityAIBridge.Editor
                     continue;
                 }
 
+                if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
+                    typeof(Component).IsAssignableFrom(field.FieldType))
+                {
+                    var refObj = field.GetValue(component) as UnityEngine.Object;
+                    if (refObj == null) { entry[field.Name] = JValue.CreateNull(); continue; }
+                    // Asset references in customData are not supported — skip
+                    if (!string.IsNullOrEmpty(AssetDatabase.GetAssetPath(refObj))) continue;
+                    var refGo = refObj is GameObject gObj ? gObj : ((Component)refObj).gameObject;
+                    var refSync = refGo.GetComponent<EntitySync>();
+                    if (refSync != null && !string.IsNullOrEmpty(refSync.uuid))
+                        entry[field.Name] = new JObject { ["targetUUID"] = refSync.uuid };
+                    else
+                    {
+                        entry[field.Name] = JValue.CreateNull();
+                        Debug.LogWarning($"[UnityAIBridge] Field {field.Name} on {type.Name} references a GameObject with no EntitySync — serialized as null");
+                    }
+                    continue;
+                }
+
                 if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType)) continue;
 
                 try
@@ -721,7 +762,7 @@ namespace UnityAIBridge.Editor
 
             ApplyGoProperties(go, data);
             ApplyTransform(go, data["transform"] as JObject);
-            ReconcileComponents(go, data["customData"] as JArray);
+            ReconcileComponents(go, data["customData"] as JArray, manager);
             BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
 
             EditorUtility.SetDirty(go);

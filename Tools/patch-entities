@@ -16,7 +16,7 @@ Field paths (same as query-scene):
   transform.rot.x / .y / .z
   transform.scl.x / .y / .z
   name, activeSelf, isStatic, tag, layer, prefabPath, parentUuid, siblingIndex
-  Any field present in customData entries
+  Any field present in customData or builtInComponents entries
 
 --stdin reads UUIDs from stdin (one per line or JSON array) instead of running
 a filter, making it composable with query-scene and get-visible-entities:
@@ -244,7 +244,7 @@ def set_entity_field(entity, field, op, value):
         entity[key] = apply_op(entity.get(key), op, value)
         return True
 
-    for comp in entity.get("customData", []):
+    for comp in entity.get("builtInComponents", []) + entity.get("customData", []):
         if field in comp:
             comp[field] = apply_op(comp[field], op, value)
             return True
