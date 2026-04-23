@@ -56,7 +56,7 @@ Steps:
    - Create `<project-root>/Tools/` if it does not already exist.
    - Copy each script from the package `Tools/` directory:
      - `Tools/get-selection`      → `<project-root>/Tools/get-selection`
-     - `Tools/select-objects`     → `<project-root>/Tools/select-objects`
+     - `Tools/select-entities`    → `<project-root>/Tools/select-entities`
      - `Tools/get-scene-path`     → `<project-root>/Tools/get-scene-path`
      - `Tools/get-camera`         → `<project-root>/Tools/get-camera`
      - `Tools/get-visible-objects` → `<project-root>/Tools/get-visible-objects`

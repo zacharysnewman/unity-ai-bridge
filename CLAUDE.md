@@ -28,18 +28,20 @@ Assets/SceneData/Level_01/
 
 ## CLI Tools
 
-Seven CLI tools are installed in `Tools/` at the project root. Prefer these over manually reading files — they are optimized for their tasks and enforce result caps.
+Nine CLI tools are installed in `Tools/` at the project root. Prefer these over manually reading files — they are optimized for their tasks and enforce result caps.
 
 | Tool | When to use |
 |---|---|
 | `Tools/query-scene <scene> "<filter>"` | Find entities matching field criteria without opening every file |
 | `Tools/query-logs <type> [substring]` | Read Unity Editor.log filtered by type |
-| `Tools/get-selection [scene]` | Get UUIDs of currently selected objects |
-| `Tools/select-objects [scene] <uuid>...` | Set the Unity Editor selection by UUID |
+| `Tools/get-selection [scene]` | Get UUIDs of currently selected entities |
+| `Tools/select-entities [scene] <uuid>...` | Set the Unity Editor selection by UUID |
 | `Tools/get-scene-path [scene]` | Get the active scene asset path |
 | `Tools/get-camera [scene]` | Get scene view camera position and rotation |
-| `Tools/get-visible-objects [scene]` | Get UUIDs of objects visible in the scene view frustum |
+| `Tools/get-visible-objects [scene]` | Get UUIDs of entities visible in the scene view frustum |
 | `Tools/patch-entities <scene> "<filter>" "<patch>"` | Batch-apply a field mutation to all matching entities |
+| `Tools/create-entities <scene> '<spec-json>'` | Create new entities and return their UUIDs |
+| `Tools/delete-entities <scene> <uuid>...` | Delete entities by UUID |
 
 ### query-scene
 
@@ -68,22 +70,22 @@ Tools/query-logs Log "[UnityAIBridge]"
 
 Types: `Error  Warning  Log  Exception  Assert` — type argument is required.
 
-### get-selection / select-objects
+### get-selection / select-entities
 
 ```bash
 Tools/get-selection                          # returns UUID array for current selection
 Tools/get-selection Level_A                  # scoped to a specific scene
-Tools/select-objects <uuid> <uuid> ...       # select objects by UUID
-Tools/select-objects Level_A <uuid> ...      # scoped to a specific scene
-Tools/select-objects                         # clear selection
-Tools/select-objects --stdin                 # read UUIDs from stdin (JSON array or one per line)
+Tools/select-entities <uuid> <uuid> ...      # select entities by UUID
+Tools/select-entities Level_A <uuid> ...     # scoped to a specific scene
+Tools/select-entities                        # clear selection
+Tools/select-entities --stdin                # read UUIDs from stdin (JSON array or one per line)
 ```
 
-`--stdin` makes `select-objects` composable with any UUID-producing tool:
+`--stdin` makes `select-entities` composable with any UUID-producing tool:
 
 ```bash
-Tools/get-visible-objects | Tools/select-objects --stdin
-Tools/query-scene Level_A "component == Enemy" | Tools/select-objects --stdin
+Tools/get-visible-objects | Tools/select-entities --stdin
+Tools/query-scene Level_A "component == Enemy" | Tools/select-entities --stdin
 ```
 
 ### get-scene-path / get-camera / get-visible-objects

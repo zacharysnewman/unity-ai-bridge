@@ -2,7 +2,7 @@
 """
 get-selection [scene-name]
 
-Prints the UUIDs of currently selected objects as a JSON array.
+Prints the UUIDs of currently selected entities as a JSON array.
 If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.
 
 Examples:
