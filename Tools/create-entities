@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""
+create-entities <scene> '<spec-json>'
+create-entities <scene> --stdin
+
+Creates one or more entity JSON files and prints their UUIDs to stdout (one per
+line), making the output composable with select-objects, patch-entities, etc.
+
+Each spec must include at minimum 'name' and 'prefabPath'. Optional fields:
+  parentUuid, siblingIndex, tag, layer, isStatic, activeSelf,
+  transform: {pos, rot, scl}, customData
+
+Specs provided via --stdin are read as a JSON array or one JSON object per line.
+
+--undo  Reverts the most recent entry in patch-history.json.
+--history  Prints a summary of recorded history entries.
+
+Examples:
+  create-entities Level_A '{"name":"Cube1","prefabPath":"primitive/Cube"}'
+  create-entities Level_A '{"name":"Enemy","prefabPath":"Assets/Prefabs/Enemy.prefab","transform":{"pos":[0,1,0],"rot":[0,0,0],"scl":[1,1,1]}}'
+  echo '[{"name":"A","prefabPath":"primitive/Sphere"},{"name":"B","prefabPath":"primitive/Cube"}]' \\
+    | create-entities Level_A --stdin
+  create-entities Level_A '{"name":"Spawn","prefabPath":"primitive/Sphere"}' \\
+    | select-objects --stdin
+"""
+
+import json
+import os
+import sys
+import uuid as uuidlib
+from datetime import datetime, timezone
+
+SEARCH_ROOT = "Assets/SceneData"
+HISTORY_FILE = "patch-history.json"
+HISTORY_LIMIT = 10
+
+DEFAULT_TRANSFORM = {"pos": [0.0, 0.0, 0.0], "rot": [0.0, 0.0, 0.0], "scl": [1.0, 1.0, 1.0]}
+REQUIRED_FIELDS = {"name", "prefabPath"}
+
+
+# ── Scene discovery ────────────────────────────────────────────────────────────
+
+def find_scene_path(scene_name):
+    for dirpath, _dirs, files in os.walk(SEARCH_ROOT):
+        if "manifest.json" in files and os.path.basename(dirpath) == scene_name:
+            return dirpath
+    return None
+
+
+def list_available_scenes():
+    scenes = []
+    for dirpath, _dirs, files in os.walk(SEARCH_ROOT):
+        if "manifest.json" in files:
+            scenes.append(os.path.relpath(dirpath, SEARCH_ROOT))
+    return sorted(scenes)
+
+
+# ── History ────────────────────────────────────────────────────────────────────
+
+def load_history(scene_path):
+    path = os.path.join(scene_path, HISTORY_FILE)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(scene_path, history):
+    path = os.path.join(scene_path, HISTORY_FILE)
+    with open(path, "w") as f:
+        json.dump(history, f, indent=2)
+
+
+def push_history(scene_path, entry_type, description, changes):
+    history = load_history(scene_path)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "type": entry_type,
+        "description": description,
+        "count": len(changes),
+        "changes": changes,
+    }
+    history.insert(0, entry)
+    save_history(scene_path, history[:HISTORY_LIMIT])
+
+
+# ── Subcommands ────────────────────────────────────────────────────────────────
+
+def cmd_history(scene_path):
+    history = load_history(scene_path)
+    if not history:
+        print("No history.")
+        return
+    for i, entry in enumerate(history):
+        t = entry.get("type", "patch")
+        print(f"[{i}] {entry['timestamp']}  [{t}] {entry['description']}  ({entry['count']} object(s))")
+
+
+def cmd_undo(scene_path, entities_dir):
+    history = load_history(scene_path)
+    if not history:
+        print("Nothing to undo.")
+        return
+
+    entry = history[0]
+    entry_type = entry.get("type", "patch")
+    reverted, errors = 0, 0
+
+    if entry_type == "create":
+        for change in entry.get("changes", []):
+            entity_path = os.path.join(entities_dir, change["uuid"] + ".json")
+            if not os.path.exists(entity_path):
+                print(f"Warning: {change['uuid']} not found, skipping.", file=sys.stderr)
+                errors += 1
+                continue
+            try:
+                os.remove(entity_path)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: could not remove {change['uuid']}: {e}", file=sys.stderr)
+                errors += 1
+
+    elif entry_type == "delete":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            try:
+                with open(entity_path, "w") as f:
+                    json.dump(change.get("entity", {}), f, indent=2)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: could not restore {uuid}: {e}", file=sys.stderr)
+                errors += 1
+
+    elif entry_type == "patch":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            if not os.path.exists(entity_path):
+                print(f"Warning: {uuid} not found, skipping.", file=sys.stderr)
+                errors += 1
+                continue
+            try:
+                with open(entity_path) as f:
+                    entity = json.load(f)
+                entity[change["field"]] = change["before"]
+                with open(entity_path, "w") as f:
+                    json.dump(entity, f, indent=2)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: {uuid}: {e}", file=sys.stderr)
+                errors += 1
+
+    history.pop(0)
+    save_history(scene_path, history)
+
+    parts = [f"Reverted '{entry['description']}' on {reverted} object(s)."]
+    if errors:
+        parts.append(f"{errors} error(s).")
+    print(" ".join(parts))
+
+
+# ── Entity creation ────────────────────────────────────────────────────────────
+
+def build_entity(spec):
+    missing = REQUIRED_FIELDS - set(spec.keys())
+    if missing:
+        raise ValueError(f"Missing required field(s): {', '.join(sorted(missing))}")
+
+    entity_uuid = str(uuidlib.uuid4())
+    transform = spec.get("transform", {})
+    entity = {
+        "uuid": entity_uuid,
+        "name": spec["name"],
+        "prefabPath": spec["prefabPath"],
+        "parentUuid": spec.get("parentUuid", None),
+        "transform": {
+            "pos": transform.get("pos", list(DEFAULT_TRANSFORM["pos"])),
+            "rot": transform.get("rot", list(DEFAULT_TRANSFORM["rot"])),
+            "scl": transform.get("scl", list(DEFAULT_TRANSFORM["scl"])),
+        },
+    }
+    for optional in ("siblingIndex", "tag", "layer", "isStatic", "activeSelf"):
+        if optional in spec:
+            entity[optional] = spec[optional]
+    if "customData" in spec:
+        entity["customData"] = spec["customData"]
+    return entity_uuid, entity
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+def main():
+    args = sys.argv[1:]
+    use_stdin = "--stdin" in args
+    do_undo = "--undo" in args
+    do_history = "--history" in args
+    args = [a for a in args if a not in ("--stdin", "--undo", "--history")]
+
+    if not args:
+        print("Usage: create-entities <scene> '<spec-json>'", file=sys.stderr)
+        sys.exit(1)
+
+    scene_name = args[0]
+    args = args[1:]
+
+    scene_path = find_scene_path(scene_name)
+    if not scene_path:
+        print(f"Error: Scene '{scene_name}' not found under {SEARCH_ROOT}", file=sys.stderr)
+        available = list_available_scenes()
+        if available:
+            print("Available scenes (paths relative to Assets/SceneData):", file=sys.stderr)
+            for s in available:
+                print(f"  {s}", file=sys.stderr)
+        sys.exit(1)
+
+    entities_dir = os.path.join(scene_path, "Entities")
+    os.makedirs(entities_dir, exist_ok=True)
+
+    if do_history:
+        cmd_history(scene_path)
+        return
+
+    if do_undo:
+        cmd_undo(scene_path, entities_dir)
+        return
+
+    # Gather specs
+    if use_stdin:
+        raw = sys.stdin.read().strip()
+        if not raw:
+            print("Error: no input on stdin", file=sys.stderr)
+            sys.exit(1)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"Error: invalid JSON on stdin: {e}", file=sys.stderr)
+            sys.exit(1)
+        specs = parsed if isinstance(parsed, list) else [parsed]
+    else:
+        if not args:
+            print("Usage: create-entities <scene> '<spec-json>'", file=sys.stderr)
+            sys.exit(1)
+        try:
+            specs = [json.loads(args[0])]
+        except json.JSONDecodeError as e:
+            print(f"Error: invalid JSON spec: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    created, errors = 0, 0
+    changes = []
+
+    for spec in specs:
+        try:
+            entity_uuid, entity = build_entity(spec)
+        except ValueError as e:
+            print(f"Error in spec: {e}", file=sys.stderr)
+            errors += 1
+            continue
+
+        entity_path = os.path.join(entities_dir, entity_uuid + ".json")
+        try:
+            with open(entity_path, "w") as f:
+                json.dump(entity, f, indent=2)
+            print(entity_uuid)
+            created += 1
+            changes.append({"uuid": entity_uuid})
+        except Exception as e:
+            print(f"Error: could not write {entity_uuid}: {e}", file=sys.stderr)
+            errors += 1
+
+    if changes:
+        names = ", ".join(s.get("name", "?") for s in specs[:3])
+        if len(specs) > 3:
+            names += f" (+{len(specs) - 3} more)"
+        try:
+            push_history(scene_path, "create", f"create {names}", changes)
+        except Exception as e:
+            print(f"Warning: could not write history: {e}", file=sys.stderr)
+
+    if errors:
+        print(f"Created {created} entity/entities with {errors} error(s).", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

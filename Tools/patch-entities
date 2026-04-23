@@ -275,10 +275,11 @@ def save_history(scene_path, history):
         json.dump(history, f, indent=2)
 
 
-def push_history(scene_path, description, changes):
+def push_history(scene_path, entry_type, description, changes):
     history = load_history(scene_path)
     entry = {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "type": entry_type,
         "description": description,
         "count": len(changes),
         "changes": changes,
@@ -315,27 +316,57 @@ def cmd_undo(scene_path, entities_dir):
         return
 
     entry = history[0]
+    entry_type = entry.get("type", "patch")
     reverted, errors = 0, 0
 
-    for change in entry.get("changes", []):
-        uuid = change["uuid"]
-        field = change["field"]
-        before = change["before"]
-        entity_path = os.path.join(entities_dir, uuid + ".json")
-        if not os.path.exists(entity_path):
-            print(f"Warning: {uuid} not found, skipping.", file=sys.stderr)
-            errors += 1
-            continue
-        try:
-            with open(entity_path) as f:
-                entity = json.load(f)
-            set_entity_field(entity, field, "=", before)
-            with open(entity_path, "w") as f:
-                json.dump(entity, f, indent=2)
-            reverted += 1
-        except Exception as e:
-            print(f"Warning: {uuid}: {e}", file=sys.stderr)
-            errors += 1
+    if entry_type == "patch":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            field = change["field"]
+            before = change["before"]
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            if not os.path.exists(entity_path):
+                print(f"Warning: {uuid} not found, skipping.", file=sys.stderr)
+                errors += 1
+                continue
+            try:
+                with open(entity_path) as f:
+                    entity = json.load(f)
+                set_entity_field(entity, field, "=", before)
+                with open(entity_path, "w") as f:
+                    json.dump(entity, f, indent=2)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: {uuid}: {e}", file=sys.stderr)
+                errors += 1
+
+    elif entry_type == "delete":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            entity = change.get("entity", {})
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            try:
+                with open(entity_path, "w") as f:
+                    json.dump(entity, f, indent=2)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: could not restore {uuid}: {e}", file=sys.stderr)
+                errors += 1
+
+    elif entry_type == "create":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            if not os.path.exists(entity_path):
+                print(f"Warning: {uuid} not found, skipping.", file=sys.stderr)
+                errors += 1
+                continue
+            try:
+                os.remove(entity_path)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: could not remove {uuid}: {e}", file=sys.stderr)
+                errors += 1
 
     history.pop(0)
     save_history(scene_path, history)
@@ -458,7 +489,7 @@ def main():
 
     if changes:
         try:
-            push_history(scene_path, patch_expr.strip(), changes)
+            push_history(scene_path, "patch", patch_expr.strip(), changes)
         except Exception as e:
             print(f"Warning: could not write patch history: {e}", file=sys.stderr)
 

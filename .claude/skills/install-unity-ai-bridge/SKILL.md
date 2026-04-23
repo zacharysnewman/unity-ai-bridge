@@ -63,6 +63,8 @@ Steps:
      - `Tools/patch-entities`     → `<project-root>/Tools/patch-entities`
      - `Tools/query-scene`        → `<project-root>/Tools/query-scene`
      - `Tools/query-logs`         → `<project-root>/Tools/query-logs`
+     - `Tools/create-entities`    → `<project-root>/Tools/create-entities`
+     - `Tools/delete-entities`    → `<project-root>/Tools/delete-entities`
    - Make all files executable (`chmod +x`).
    - Overwrite any existing copies so the project always has the current version.
 
