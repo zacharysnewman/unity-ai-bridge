@@ -40,7 +40,7 @@ All core package components implemented. Three additional gaps patched based on 
 ### 4. `SceneDataManager` (Runtime)
 **File:** `Runtime/SceneDataManager.cs`
 
-- The only persistent (non-DontSave) object in the shell `.unity` scene file
+- Persistent scene object saved in the `.unity` file alongside all entity GameObjects
 - Holds `sceneDataPath` (project-relative path to scene data directory)
 - Owns the `Dictionary<string, GameObject>` UUID→GameObject lookup
 - Exposes `Register`, `Unregister`, `ClearRegistry`, `GetByUUID`, `GetAllUUIDs`
@@ -54,8 +54,8 @@ All core package components implemented. Three additional gaps patched based on 
 
 Full serialization engine:
 
-- **Bootstrap** (`BootstrapScene`): async 3-pass IEnumerator with Unity progress bar
-  - Pass 1: instantiate all entity prefabs/primitives, attach `EntitySync`, apply `DontSave`
+- **Bootstrap** (`ReconcileScene`): async non-destructive sync with Unity progress bar
+  - Pass 1: instantiate missing entity prefabs/primitives, attach `EntitySync`; update existing ones in-place
   - Pass 2: wire `transform.SetParent` hierarchy (must precede transform application)
   - Pass 3: apply `transform` (pos/rot/scl) and `customData` via reflection
 - **Write pipeline** (`WriteEntity`, `SerializeEntity`): serializes GameObject→JSON with diff-guard (skips write if content unchanged)
@@ -115,7 +115,6 @@ Full serialization engine:
 **File:** `Editor/LiveSyncController.cs` (patched)
 
 - `ExecuteForceReload` and `ForceReloadScene` menu item now call `AssetDatabase.Refresh(ForceUpdate | ForceSynchronousImport)` before re-reading entity files
-- Ensures Unity picks up file changes that FSW may have missed on macOS before the scene is re-bootstrapped
 
 ---
 
@@ -179,8 +178,7 @@ Minimal setup UI accessible via `Unity AI Bridge → Setup Window`:
 | Item | Status |
 |---|---|
 | Undo/Redo via `ObjectChangeEvents` | Unverified — needs Unity Editor testing to confirm Undo fires the same change events as direct edits (per SPEC.md §6.4) |
-| FileSystemWatcher reliability on macOS | Known issue — mitigated by `AssetDatabase.Refresh` on force reload |
-| Domain Reload disabled incompatibility | Not supported — requires Unity's default domain reload enabled (per SPEC.md §5.4) |
+| Domain Reload disabled incompatibility | Low risk — entities are persistent GameObjects; domain reload is not required for correctness, but is Unity's default |
 | Same-type multi-component reordering | Accepted trade-off — component index maps by order, reordering same-type components breaks index alignment |
 | OS-level scene rename/move | `AssetModificationProcessor` only intercepts Project-window operations; Finder/`mv` renames require manual data directory move + `AssetDatabase.Refresh` |
 

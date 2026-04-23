@@ -18,7 +18,7 @@ The file system (JSON) is the **absolute Source of Truth**. Unity serves strictl
 
 | Principle | Description |
 |---|---|
-| **Shell Scene** | The native `.unity` file contains exactly one persistent object (`SceneDataManager`). All other objects are ephemeral, flagged with `HideFlags.DontSave`. `DontSave` is a composite of `DontSaveInEditor`, `DontSaveInBuild`, and `DontUnloadUnusedAsset` — it affects persistence only, not editor interactivity. Objects with this flag are fully selectable, moveable, and editable by standard and third-party editor tools. |
+| **Shell Scene** | The native `.unity` file contains `SceneDataManager` and all entity GameObjects as normal, persistent scene objects. Entities are saved into the `.unity` file by Unity's standard scene serialization and are fully included in player builds. |
 | **Decentralized Entities** | The scene is a directory of individual JSON files — one per entity/prefab instance. AI can grep and edit specific chunks efficiently. |
 | **Live Database Workflow** | There is no traditional "Save Scene" action. Memory and disk state are kept in constant parity. |
 | **Human/AI Readable Types** | Complex Unity types (`Quaternion`, `Color`) are serialized into flat, readable formats (Euler degrees, RGB arrays) to minimize token count and cognitive load. |
@@ -225,20 +225,20 @@ AI tools generate a fresh UUID v4, write the complete file directly, and use tha
 
 ## 5. Workflows & CRUD Operations
 
-### 5.1 Bootstrapping (Initialization)
+### 5.1 Bootstrapping (Reconciliation)
 
-Triggered by `[InitializeOnLoad]` or when the shell scene is opened. Loading is **asynchronous** and displays a native Unity progress panel to remain non-blocking for large scenes.
+Triggered by `[InitializeOnLoad]` or when the scene is opened. Loading is **asynchronous** (`ReconcileScene`) and non-destructive — existing entities are updated in-place rather than destroyed and re-created. Entities already present in the scene (from a prior session save) are reused.
 
-1. Read and validate `manifest.json`. If `schemaVersion` does not match the expected version, abort loading and surface an error — no automatic migration is attempted.
-2. Collect all files in `Entities/` into a load queue.
-3. **Async loop — pass 1 (instantiate)** — for each entity file:
-   a. Instantiate the prefab (`PrefabUtility.InstantiatePrefab`) or primitive (`GameObject.CreatePrimitive`).
-   b. Attach `EntitySync`, assign the `uuid`.
-   c. Apply `gameObject.hideFlags = HideFlags.DontSave`.
-   d. Register in the UUID → GameObject lookup table.
-4. **Pass 2 (wire hierarchy)** — resolve all `parentUuid` references by calling `transform.SetParent()`. Must complete before transforms are applied, because `pos` and `rot` are local-space and meaningless until the parent is established. Mirrors Unity's own load order (`m_Father` is wired before positions are interpreted).
-5. **Pass 3 (apply data)** — for each entity, apply `transform` (pos, rot, scl) and `customData` fields via reflection.
-6. Close the progress panel.
+1. Rebuild the UUID → GameObject registry from existing scene objects (fast, no file I/O). JSON wins on any conflict.
+2. Read and validate `manifest.json`. If `schemaVersion` does not match the expected version, abort loading and surface an error — no automatic migration is attempted.
+3. Collect all files in `Entities/` into a load queue.
+4. **Async loop — pass 1 (reconcile)** — for each entity file:
+   a. If a GameObject with the matching UUID already exists, update it in-place.
+   b. If not, instantiate the prefab (`PrefabUtility.InstantiatePrefab`) or primitive (`GameObject.CreatePrimitive`), attach `EntitySync`, assign the `uuid`, and register in the lookup table.
+5. **Pass 2 (wire hierarchy)** — resolve all `parentUuid` references via `transform.SetParent()`. Must precede transform application because `pos` and `rot` are local-space relative to the parent.
+6. **Pass 3 (apply data)** — for each entity, apply `transform` (pos, rot, scl) and `customData` fields via reflection.
+7. Prune orphan entities: destroy any scene object with an `EntitySync` component that has no corresponding JSON file.
+8. Close the progress panel.
 
 ### 5.2 Unity Editor → JSON (Write Pipeline)
 
@@ -247,7 +247,7 @@ Managed by `LiveSyncController` intercepting editor change events. All writes us
 | Operation | Trigger | Mechanism |
 |---|---|---|
 | **Update** | `Transform.hasChanged` or any Inspector field change | Debounce timer (300 ms). Final state at timer expiry is written to `[UUID].json`. Intermediate states are not written. |
-| **Create (human)** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`, apply `DontSave` flag. `EntityAssetPostprocessor` (§4.5) assigns UUID and writes file. |
+| **Create (human)** | `ObjectChangeEvents` (prefab dropped into scene) | Intercept creation. Attach `EntitySync`. `EntityAssetPostprocessor` (§4.5) assigns UUID and writes file. |
 | **Create (AI)** | Direct file write | AI generates a fresh UUID v4, writes the complete entity JSON file, then uses that UUID in any subsequent cross-referencing files. |
 | **Delete** | `ObjectChangeEvents` (object destroyed) | Intercept deletion. Identify UUID via `EntitySync`, call `File.Delete([UUID].json)`. |
 | **Duplicate** | Ctrl+D (clone created) | `EntityAssetPostprocessor` detects filename/UUID mismatch on the cloned file and assigns a fresh UUID automatically. |
@@ -265,17 +265,18 @@ Handles external edits from AI tools, text editors, or Git operations.
 
 ### 5.4 Play Mode
 
+Entity GameObjects are normal persistent scene objects. They are **not** destroyed on Play Mode entry. Unity runs the scene natively with all entities intact.
+
 On **Enter Play Mode**:
-- All `DontSave` entities are destroyed from the hierarchy.
-- Unity enters Play Mode in the shell scene with no managed objects.
+- The `FileSystemWatcher` is stopped.
+- The write pipeline (Unity → JSON) is suspended. Inspector changes during play are not written to disk.
 
 On **Exit Play Mode**:
-- The bootstrap sequence (§5.1) runs again, reinstantiating all entities from disk.
-- This provides the most authentic Play Mode experience, identical to what a freshly-opened scene would produce.
+- Unity's standard Play Mode revert restores any in-editor state changes made during play.
+- The `LiveSyncController` rebuilds the UUID → GameObject registry from the existing scene objects and restarts the `FileSystemWatcher`.
+- JSON files changed externally during Play Mode are **not** automatically applied on exit (the watcher was stopped). Use *Unity AI Bridge → Force Reload Scene* to apply any such changes.
 
-The JSON files on disk are **never written to during Play Mode**. The `LiveSyncController` suspends the write pipeline for the duration.
-
-> **Known incompatibility:** If *Project Settings → Editor → Enter Play Mode Settings → Disable Domain Reload* is enabled, Unity does not perform a domain reload on Play Mode entry. `DontSave` objects are **not** automatically destroyed, and the re-bootstrap on exit may produce duplicates. This system requires domain reload to be **enabled** (Unity's default). Projects that have disabled it for faster iteration are not supported.
+The JSON files on disk are **never read or written during Play Mode**.
 
 ### 5.5 Scene Lifecycle (Rename & Delete)
 

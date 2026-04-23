@@ -6,13 +6,11 @@ This document evaluates how well the current codebase aligns with the architectu
 
 ## Summary Verdict
 
-The current implementation is a **well-built system** that handles the bidirectional sync flows correctly at the mechanism level. The file watching, write pipeline, debounce, diff guard, UUID identity, and component serialization are all solid.
-
-However, there is one **fundamental architectural divergence** that undermines the core promise of the spec — specifically, the Play Mode and Build Mode guarantees. This is not a surface-level bug; it is a deliberate design choice in the current `SPEC.md` that conflicts with the target architecture described in `BIDIRECTIONAL_SYNC_SPEC.md`.
+The current implementation is a **well-built system** that handles the bidirectional sync flows correctly at the mechanism level. The file watching, write pipeline, debounce, diff guard, UUID identity, and component serialization are all solid. The persistent-objects model is correctly implemented — entities are normal saved scene objects included in player builds.
 
 ---
 
-## 1. Critical Gap: DontSave vs. Persistent GameObjects
+## 1. Persistent GameObjects — Resolved ✅
 
 ### What the spec requires
 The spec's Play Mode guarantee is: *"Unity just runs the scene natively. It doesn't need to read the JSON at all because the scene is already guaranteed to be an exact reflection of the data."*
@@ -21,55 +19,19 @@ The spec's Build Mode guarantee is: *"The raw JSON files are completely excluded
 
 Both guarantees rest on a single assumption: **GameObjects in the scene are real, saved, persistent Unity objects**. The JSON and the scene are perfect mirrors. Either can be treated as the source at any moment.
 
-### What the current system does
-The current `SPEC.md` explicitly adopts the opposite approach:
+### Current behavior (implemented correctly)
 
-> *"The native `.unity` file contains exactly one persistent object (`SceneDataManager`). All other objects are ephemeral, flagged with `HideFlags.DontSave`."*
-
-`HideFlags.DontSave` is a composite flag (`DontSaveInEditor | DontSaveInBuild | DontUnloadUnusedAsset`). This means:
-- Entity GameObjects are **never written to the `.unity` scene file**.
-- On Editor domain reload, all entities vanish. The `[InitializeOnLoad]` bootstrap rebuilds them from JSON.
-- On Play Mode entry, all `DontSave` entities are destroyed. The scene is empty during play.
-- On Play Mode exit, bootstrap runs again to rebuild from JSON.
-- In a player build, `DontSave` objects are excluded. The scene ships empty (only `SceneDataManager`).
-
-### Why this is a critical gap
+Entity GameObjects are normal persistent scene objects — no `HideFlags.DontSave`. This means:
+- Entities are saved into the `.unity` scene file by Unity's standard serialization.
+- Player builds include all entities.
+- Entities survive Play Mode; the scene is not empty during play.
+- `ReconcileScene` (the non-destructive bootstrap) updates entities in-place rather than destroy-and-rebuild.
 
 | Guarantee | Spec Requirement | Current Behavior |
 |---|---|---|
-| Play Mode | Scene is already correct; Unity runs natively | All entities destroyed on enter; scene is empty during play |
-| Build Mode | Standard Unity build with all objects intact | Build contains only `SceneDataManager`; scene ships empty |
-| Mirror invariant | Unity scene = JSON at all times | Unity scene is only valid between domain reloads; Play Mode breaks it |
-
-The current system is effectively a **runtime scene compiler disguised as a sync system**. It rebuilds the scene from JSON on every domain reload and play mode exit, rather than maintaining a persistent scene that is continuously kept in sync.
-
-### What needs to change
-
-The `DontSave` flag must be removed from entity GameObjects. Entities must be saved into the `.unity` scene file as normal objects.
-
-This requires rethinking several subsystems:
-
-**a) Bootstrap becomes optional, not mandatory**
-- On first setup (empty scene), bootstrap from JSON to populate the scene. This is a one-time migration.
-- On subsequent opens, the scene already has the objects. Bootstrap is not needed.
-- Bootstrap may still be useful as a "reset to JSON truth" operation (conflict recovery, full revert).
-
-**b) Play Mode becomes trivial**
-- Remove the destroy-on-enter / bootstrap-on-exit logic.
-- The scene is already correct. Press Play. Done.
-- Optional: add a pre-play validation check comparing live scene state against JSON.
-
-**c) Build Mode becomes trivial**
-- No changes needed. Unity builds the scene normally.
-- Add a build postprocessor to explicitly verify no JSON files are in `StreamingAssets/` or `Resources/` (safety check, not functionally required since they're in `Assets/SceneData/`).
-
-**d) Scene saves must be allowed**
-- Currently, nothing writes to the `.unity` file because everything is `DontSave`.
-- With persistent objects, Unity's normal `Ctrl+S` scene save must be permitted (and should be a no-op for the sync system, since changes are already propagated to JSON via the write pipeline).
-
-**e) The "External Writes Win" rule still holds**
-- When a JSON file changes, the system finds the matching `GameObject` (by UUID via `DataLink`) and updates it in-place. This is unchanged.
-- The key difference is that these updates now also propagate through to the saved `.unity` file (because Unity saves the scene with the updated objects).
+| Play Mode | Scene is already correct; Unity runs natively | ✅ Entities persist through play; sync pipelines suspend during play |
+| Build Mode | Standard Unity build with all objects intact | ✅ Entities saved in `.unity` and included in builds |
+| Mirror invariant | Unity scene = JSON at all times | ✅ In-place reconciliation maintains the invariant |
 
 ---
 
@@ -117,7 +79,7 @@ The bootstrap sequence (instantiate → wire hierarchy → apply transforms) is 
 These are smaller issues that should be addressed but are not blocking.
 
 ### 3.1 Play Mode Validation (Optional, Not Implemented)
-The spec mentions an optional startup check: compare JSON entity count / UUID set against the live scene before entering Play Mode, warning if a desync is detected. This is not implemented. Low priority — once the DontSave issue is resolved and the scene is persistent, desyncs will be rare. Worth adding as a `[RuntimeInitializeOnLoadMethod]` or Editor pre-play callback.
+The spec mentions an optional startup check: compare JSON entity count / UUID set against the live scene before entering Play Mode, warning if a desync is detected. This is not implemented. Low priority — since entities are persistent, desyncs will be rare. Worth adding as a `[RuntimeInitializeOnLoadMethod]` or Editor pre-play callback.
 
 ### 3.2 Build Postprocessor (Safety Net, Not Implemented)
 No build postprocessor explicitly verifies that JSON files are excluded from builds. Currently, files in `Assets/SceneData/` are not in `Resources/` or `StreamingAssets/` so they are excluded by default. A `BuildPlayerProcessor` could add an explicit check/warning. Low priority.
@@ -138,14 +100,14 @@ The spec uses "DataLink" as the name for the UUID-carrying component. The curren
 
 ## 4. What Needs to Change — Prioritized
 
-### Priority 1 (Blocking — Core Architecture)
+### Priority 1 (Blocking — Core Architecture) — All Resolved ✅
 
-| Item | Change Required |
+| Item | Status |
 |---|---|
-| **Remove `HideFlags.DontSave` from entities** | Entities must be saved into the `.unity` scene file as persistent GameObjects. Remove the `DontSave` assignment in `SceneIO.BootstrapScene` and `LiveSyncController.HandleCreateEvent`. |
-| **Remove destroy-on-enter-play logic** | `LiveSyncController` currently destroys entities on Play Mode entry and re-bootstraps on exit. With persistent objects, this is wrong. Remove the destroy step; the scene persists through Play Mode intact. |
-| **Remove mandatory bootstrap on every domain reload** | Bootstrap should only run on first setup (empty scene) or explicit user request ("Force Reload"). It should not run automatically every time Unity opens the scene if the scene already has entities. Detect whether the scene is already populated and skip bootstrap if so. |
-| **Update `SceneDataManagerWindow` setup flow** | The "setup" step should populate the scene from JSON once (initial migration), then leave the scene persistent. Clarify in the UI that bootstrap is a one-time or recovery operation. |
+| **Remove `HideFlags.DontSave` from entities** | ✅ Done — entities are normal persistent GameObjects |
+| **Remove destroy-on-enter-play logic** | ✅ Done — entities persist through Play Mode; no destroy/bootstrap cycle |
+| **Remove mandatory bootstrap on every domain reload** | ✅ Done — `ReconcileScene` is non-destructive; existing entities updated in-place |
+| **Update `SceneDataManagerWindow` setup flow** | ✅ Done — bootstrap is a recovery/initial-setup operation, not mandatory |
 
 ### Priority 2 (Important — Correctness)
 
@@ -171,7 +133,7 @@ The following sections of the current `SPEC.md` remain correct and should be ret
 
 - §3.3 Entity JSON Schema (uuid, name, prefabPath, parentUuid, transform, customData)
 - §3.4 Primitive Objects (`primitive/Cube`, etc.)
-- §4.3 `LiveSyncController` description (minus play mode destroy/bootstrap behavior)
+- §4.3 `LiveSyncController` description
 - §4.4 `SceneIO` description
 - §4.5 `EntityAssetPostprocessor`
 - §5.2 Unity Editor → JSON write pipeline table
@@ -185,4 +147,4 @@ The following sections of the current `SPEC.md` remain correct and should be ret
 - §7 Package Structure
 - §8 Validation
 
-The section that requires the most revision is **§5.4 Play Mode**, and the **§2 Core Principles** table entry for "Shell Scene" (which describes the `DontSave` architecture as a core principle — this needs to be replaced with the persistent-objects model).
+The sections that previously required revision — **§5.4 Play Mode** and the **§2 Core Principles** "Shell Scene" entry — have been updated to reflect the persistent-objects model.

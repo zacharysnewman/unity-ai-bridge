@@ -4,7 +4,7 @@ using UnityEngine;
 namespace UnityAIBridge
 {
     /// <summary>
-    /// The only serialized (non-DontSave) object in the shell .unity scene file.
+    /// Persistent scene object saved in the .unity file alongside all entity GameObjects.
     /// Owns the UUID→GameObject lookup dictionary and orchestrates the boot sequence.
     /// SceneIO (Editor assembly) populates this via the public API — never the reverse.
     /// Each additively-loaded scene has its own SceneDataManager instance.

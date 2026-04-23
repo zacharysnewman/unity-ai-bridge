@@ -108,9 +108,7 @@ var go = SceneDataManager.Instance.GetByUUID(doorTarget.targetUUID);
 
 ## Play Mode
 
-On **Enter Play Mode** all managed entities (flagged `DontSave`) are destroyed. On **Exit Play Mode** the full bootstrap runs again, reinstantiating everything from disk. JSON files are never written during Play Mode.
-
-> **Requirement:** Unity's domain reload must be **enabled** (the default). Projects with *Enter Play Mode Settings → Disable Domain Reload* are not supported.
+Entities are normal persistent scene objects and survive Play Mode intact. On **Enter Play Mode** the `FileSystemWatcher` and write pipeline are suspended — no JSON files are read or written while the game is running. Runtime changes to entity state (positions, component values, etc.) are reverted by Unity's standard Play Mode revert on **Exit Play Mode**. The registry (UUID → GameObject map) is rebuilt on exit to pick up any destroy/create events that occurred at runtime.
 
 ---
 
@@ -123,6 +121,5 @@ On **Enter Play Mode** all managed entities (flagged `DontSave`) are destroyed. 
 ## Known Limitations
 
 - **Undo/Redo** — expected to work via `ObjectChangeEvents`, but unverified in practice. Test early and file an issue if Undo doesn't write back to disk correctly.
-- **macOS FileSystemWatcher** — the custom watcher that detects JSON file changes (not Unity's own script hot-reload) can occasionally miss events on macOS. Use `Unity AI Bridge → Force Reload Scene` as a recovery tool if a JSON edit doesn't appear to have applied.
 - **Same-type multi-component reordering** — if two components of the same type on one object are reordered via the Inspector, `customData` indices will map incorrectly on the next load.
 - **Built-in components** — only custom `MonoBehaviour` fields are serialized. Built-in components (Collider, Rigidbody, etc.) derive their state from the source prefab.
