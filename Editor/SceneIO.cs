@@ -440,20 +440,6 @@ namespace UnityAIBridge.Editor
                 FieldInfo field = FindSerializableField(type, prop.Key);
                 if (field == null) continue;
 
-                if (typeof(ScriptableObject).IsAssignableFrom(field.FieldType))
-                {
-                    string assetPath = prop.Value.Value<string>();
-                    if (!string.IsNullOrEmpty(assetPath))
-                    {
-                        var asset = AssetDatabase.LoadAssetAtPath(assetPath, field.FieldType);
-                        if (asset == null)
-                            Debug.LogWarning($"[UnityAIBridge] ScriptableObject asset not found at '{assetPath}' for field {prop.Key} on {type.Name}");
-                        else
-                            field.SetValue(component, asset);
-                    }
-                    continue;
-                }
-
                 if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
                     typeof(Component).IsAssignableFrom(field.FieldType))
                 {
@@ -469,14 +455,33 @@ namespace UnityAIBridge.Editor
                                 field.SetValue(component, targetGo.GetComponent(field.FieldType));
                         }
                         else
-                        {
                             Debug.LogWarning($"[UnityAIBridge] Could not resolve targetUUID '{targetUuid}' for field {prop.Key} on {type.Name} — entity may not be loaded yet");
-                        }
+                    }
+                    else if (prop.Value?.Type == JTokenType.String)
+                    {
+                        string assetPath = prop.Value.Value<string>();
+                        var asset = AssetDatabase.LoadAssetAtPath(assetPath, field.FieldType);
+                        if (asset != null)
+                            field.SetValue(component, asset);
+                        else
+                            Debug.LogWarning($"[UnityAIBridge] Asset not found at '{assetPath}' for field {prop.Key} on {type.Name}");
                     }
                     continue;
                 }
 
-                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType)) continue;
+                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
+                {
+                    string assetPath = prop.Value?.Type == JTokenType.String ? prop.Value.Value<string>() : null;
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        var asset = AssetDatabase.LoadAssetAtPath(assetPath, field.FieldType);
+                        if (asset != null)
+                            field.SetValue(component, asset);
+                        else
+                            Debug.LogWarning($"[UnityAIBridge] Asset not found at '{assetPath}' for field {prop.Key} on {type.Name}");
+                    }
+                    continue;
+                }
 
                 try
                 {
@@ -640,21 +645,17 @@ namespace UnityAIBridge.Editor
 
             foreach (var field in fields)
             {
-                if (typeof(ScriptableObject).IsAssignableFrom(field.FieldType))
-                {
-                    var asset = field.GetValue(component) as UnityEngine.Object;
-                    string assetPath = asset != null ? AssetDatabase.GetAssetPath(asset) : null;
-                    entry[field.Name] = assetPath != null ? (JToken)new JValue(assetPath) : JValue.CreateNull();
-                    continue;
-                }
-
                 if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
                     typeof(Component).IsAssignableFrom(field.FieldType))
                 {
                     var refObj = field.GetValue(component) as UnityEngine.Object;
                     if (refObj == null) { entry[field.Name] = JValue.CreateNull(); continue; }
-                    // Asset references in customData are not supported — skip
-                    if (!string.IsNullOrEmpty(AssetDatabase.GetAssetPath(refObj))) continue;
+                    string assetPath = AssetDatabase.GetAssetPath(refObj);
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        entry[field.Name] = new JValue(assetPath);
+                        continue;
+                    }
                     var refGo = refObj is GameObject gObj ? gObj : ((Component)refObj).gameObject;
                     var refSync = refGo.GetComponent<EntitySync>();
                     if (refSync != null && !string.IsNullOrEmpty(refSync.uuid))
@@ -667,7 +668,13 @@ namespace UnityAIBridge.Editor
                     continue;
                 }
 
-                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType)) continue;
+                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
+                {
+                    var asset = field.GetValue(component) as UnityEngine.Object;
+                    string assetPath = asset != null ? AssetDatabase.GetAssetPath(asset) : null;
+                    entry[field.Name] = !string.IsNullOrEmpty(assetPath) ? (JToken)new JValue(assetPath) : JValue.CreateNull();
+                    continue;
+                }
 
                 try
                 {

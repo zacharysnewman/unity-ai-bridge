@@ -458,9 +458,15 @@ public struct EntityReference { public string targetUUID; }
 // Resolve: SceneDataManager.Instance.GetByUUID(ref.targetUUID)
 ```
 
-**`ScriptableObject` fields** serialize as project-relative asset paths (unchanged).
+**All `UnityEngine.Object` asset fields** (`ScriptableObject`, `Texture2D`, `AudioClip`, `Material`, `Sprite`, `Mesh`, `AnimationClip`, prefab `GameObject` references, etc.) serialize as project-relative asset paths. A null reference serializes as JSON `null`. Built-in Unity assets with no project path serialize as `null` and are skipped on apply.
 
-**Other `UnityEngine.Object` subclass fields** (e.g., `Texture`, `AudioClip`) are not serialized in `customData` — these are asset references that should come from the prefab or be assigned via `ScriptableObject` wrappers.
+```json
+"icon": "Assets/UI/Icons/star.png",
+"clip": "Assets/Audio/explosion.wav",
+"prefabRef": "Assets/Prefabs/Enemy.prefab"
+```
+
+**Sub-asset limitation:** Assets that are sub-objects of another file (e.g. a mesh embedded in an FBX, a sprite in an atlas) serialize the parent asset path only. The specific sub-object identity is lost on apply — `LoadAssetAtPath` returns the main asset instead.
 
 > **Known limitation (multi-scene):** `SceneDataManager.Instance` is a static singleton — it returns the manager that was most recently enabled. In an additively-loaded multi-scene setup, cross-scene `EntityReference` resolution via `Instance` will only search the last-enabled scene's registry. To resolve a UUID from a specific scene, hold a direct reference to that scene's `SceneDataManager` and call `GetByUUID` on it directly. UUIDs are only required to be unique within a scene, so two additively-loaded scenes may share UUIDs without registry collision.
 >
