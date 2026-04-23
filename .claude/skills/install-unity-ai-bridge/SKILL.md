@@ -55,14 +55,16 @@ Steps:
 5. Install CLI tools:
    - Create `<project-root>/Tools/` if it does not already exist.
    - Copy each script from the package `Tools/` directory:
-     - `Tools/get-selection`      → `<project-root>/Tools/get-selection`
-     - `Tools/select-objects`     → `<project-root>/Tools/select-objects`
+     - `Tools/get-selected-entities`      → `<project-root>/Tools/get-selected-entities`
+     - `Tools/select-entities`    → `<project-root>/Tools/select-entities`
      - `Tools/get-scene-path`     → `<project-root>/Tools/get-scene-path`
      - `Tools/get-camera`         → `<project-root>/Tools/get-camera`
-     - `Tools/get-visible-objects` → `<project-root>/Tools/get-visible-objects`
+     - `Tools/get-visible-entities` → `<project-root>/Tools/get-visible-entities`
      - `Tools/patch-entities`     → `<project-root>/Tools/patch-entities`
      - `Tools/query-scene`        → `<project-root>/Tools/query-scene`
      - `Tools/query-logs`         → `<project-root>/Tools/query-logs`
+     - `Tools/create-entities`    → `<project-root>/Tools/create-entities`
+     - `Tools/delete-entities`    → `<project-root>/Tools/delete-entities`
    - Make all files executable (`chmod +x`).
    - Overwrite any existing copies so the project always has the current version.
 

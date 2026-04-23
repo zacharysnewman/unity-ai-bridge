@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""
+delete-entities <scene> <uuid>...
+delete-entities <scene> --stdin
+
+Deletes entity JSON files by UUID. Unity destroys the corresponding
+GameObjects automatically (children are removed along with their parent).
+
+Deleted entity data is saved to patch-history.json so the operation can be
+undone with --undo. The history slot is shared with patch-entities and
+create-entities, giving a single unified undo stack across all mutation tools.
+
+--stdin reads UUIDs from stdin (one per line or JSON array), making it
+composable with query-scene, get-selected-entities, and get-visible-entities:
+
+  query-scene Level_A "component == Enemy" | delete-entities Level_A --stdin
+  get-selected-entities Level_A | delete-entities Level_A --stdin
+
+--undo  Reverts the most recent entry in patch-history.json.
+--history  Prints a summary of recorded history entries.
+
+Examples:
+  delete-entities Level_A 550e8400-e29b-41d4-a716-446655440000
+  delete-entities Level_A <uuid1> <uuid2> <uuid3>
+  query-scene Level_A "prefab contains TempMarker" | delete-entities Level_A --stdin
+  delete-entities Level_A --undo
+"""
+
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+SEARCH_ROOT = "Assets/SceneData"
+HISTORY_FILE = "patch-history.json"
+HISTORY_LIMIT = 10
+
+
+# ── Scene discovery ────────────────────────────────────────────────────────────
+
+def find_scene_path(scene_name):
+    for dirpath, _dirs, files in os.walk(SEARCH_ROOT):
+        if "manifest.json" in files and os.path.basename(dirpath) == scene_name:
+            return dirpath
+    return None
+
+
+def list_available_scenes():
+    scenes = []
+    for dirpath, _dirs, files in os.walk(SEARCH_ROOT):
+        if "manifest.json" in files:
+            scenes.append(os.path.relpath(dirpath, SEARCH_ROOT))
+    return sorted(scenes)
+
+
+# ── History ────────────────────────────────────────────────────────────────────
+
+def load_history(scene_path):
+    path = os.path.join(scene_path, HISTORY_FILE)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(scene_path, history):
+    path = os.path.join(scene_path, HISTORY_FILE)
+    with open(path, "w") as f:
+        json.dump(history, f, indent=2)
+
+
+def push_history(scene_path, entry_type, description, changes):
+    history = load_history(scene_path)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "type": entry_type,
+        "description": description,
+        "count": len(changes),
+        "changes": changes,
+    }
+    history.insert(0, entry)
+    save_history(scene_path, history[:HISTORY_LIMIT])
+
+
+# ── Subcommands ────────────────────────────────────────────────────────────────
+
+def cmd_history(scene_path):
+    history = load_history(scene_path)
+    if not history:
+        print("No history.")
+        return
+    for i, entry in enumerate(history):
+        t = entry.get("type", "patch")
+        print(f"[{i}] {entry['timestamp']}  [{t}] {entry['description']}  ({entry['count']} object(s))")
+
+
+def cmd_undo(scene_path, entities_dir):
+    history = load_history(scene_path)
+    if not history:
+        print("Nothing to undo.")
+        return
+
+    entry = history[0]
+    entry_type = entry.get("type", "patch")
+    reverted, errors = 0, 0
+
+    if entry_type == "delete":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            try:
+                with open(entity_path, "w") as f:
+                    json.dump(change.get("entity", {}), f, indent=2)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: could not restore {uuid}: {e}", file=sys.stderr)
+                errors += 1
+
+    elif entry_type == "create":
+        for change in entry.get("changes", []):
+            entity_path = os.path.join(entities_dir, change["uuid"] + ".json")
+            if not os.path.exists(entity_path):
+                print(f"Warning: {change['uuid']} not found, skipping.", file=sys.stderr)
+                errors += 1
+                continue
+            try:
+                os.remove(entity_path)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: could not remove {change['uuid']}: {e}", file=sys.stderr)
+                errors += 1
+
+    elif entry_type == "patch":
+        for change in entry.get("changes", []):
+            uuid = change["uuid"]
+            entity_path = os.path.join(entities_dir, uuid + ".json")
+            if not os.path.exists(entity_path):
+                print(f"Warning: {uuid} not found, skipping.", file=sys.stderr)
+                errors += 1
+                continue
+            try:
+                with open(entity_path) as f:
+                    entity = json.load(f)
+                entity[change["field"]] = change["before"]
+                with open(entity_path, "w") as f:
+                    json.dump(entity, f, indent=2)
+                reverted += 1
+            except Exception as e:
+                print(f"Warning: {uuid}: {e}", file=sys.stderr)
+                errors += 1
+
+    history.pop(0)
+    save_history(scene_path, history)
+
+    parts = [f"Reverted '{entry['description']}' on {reverted} object(s)."]
+    if errors:
+        parts.append(f"{errors} error(s).")
+    print(" ".join(parts))
+
+
+# ── Stdin UUID reading ─────────────────────────────────────────────────────────
+
+def read_uuids_from_stdin():
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        return json.loads(raw)
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+def main():
+    args = sys.argv[1:]
+    use_stdin = "--stdin" in args
+    do_undo = "--undo" in args
+    do_history = "--history" in args
+    args = [a for a in args if a not in ("--stdin", "--undo", "--history")]
+
+    if not args:
+        print("Usage: delete-entities <scene> <uuid>...", file=sys.stderr)
+        sys.exit(1)
+
+    scene_name = args[0]
+    uuid_args = args[1:]
+
+    scene_path = find_scene_path(scene_name)
+    if not scene_path:
+        print(f"Error: Scene '{scene_name}' not found under {SEARCH_ROOT}", file=sys.stderr)
+        available = list_available_scenes()
+        if available:
+            print("Available scenes (paths relative to Assets/SceneData):", file=sys.stderr)
+            for s in available:
+                print(f"  {s}", file=sys.stderr)
+        sys.exit(1)
+
+    entities_dir = os.path.join(scene_path, "Entities")
+    if not os.path.isdir(entities_dir):
+        print(f"Error: Entities directory not found at {entities_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    if do_history:
+        cmd_history(scene_path)
+        return
+
+    if do_undo:
+        cmd_undo(scene_path, entities_dir)
+        return
+
+    if use_stdin:
+        uuids = read_uuids_from_stdin()
+    else:
+        if not uuid_args:
+            print("Usage: delete-entities <scene> <uuid>...", file=sys.stderr)
+            sys.exit(1)
+        uuids = uuid_args
+
+    # Validate all UUIDs exist before deleting any
+    missing = [u for u in uuids if not os.path.exists(os.path.join(entities_dir, u + ".json"))]
+    if missing:
+        print(f"Error: {len(missing)} UUID(s) not found:", file=sys.stderr)
+        for u in missing:
+            print(f"  {u}", file=sys.stderr)
+        sys.exit(1)
+
+    deleted, errors = 0, 0
+    changes = []
+
+    for uuid in uuids:
+        entity_path = os.path.join(entities_dir, uuid + ".json")
+        try:
+            with open(entity_path) as f:
+                entity = json.load(f)
+        except Exception as e:
+            print(f"Warning: could not read {uuid}: {e}", file=sys.stderr)
+            errors += 1
+            continue
+
+        try:
+            os.remove(entity_path)
+            deleted += 1
+            changes.append({"uuid": uuid, "entity": entity})
+        except Exception as e:
+            print(f"Warning: could not delete {uuid}: {e}", file=sys.stderr)
+            errors += 1
+
+    if changes:
+        names = ", ".join(c["entity"].get("name", "?") for c in changes[:3])
+        if len(changes) > 3:
+            names += f" (+{len(changes) - 3} more)"
+        try:
+            push_history(scene_path, "delete", f"delete {names}", changes)
+        except Exception as e:
+            print(f"Warning: could not write history: {e}", file=sys.stderr)
+
+    parts = [f"Deleted {deleted} entity/entities."]
+    if errors:
+        parts.append(f"{errors} error(s).")
+    print(" ".join(parts))
+    if errors:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
