@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-get-selection [scene-name]
+get-selected-entities [scene-name]
 
 Prints the UUIDs of currently selected entities as a JSON array.
 If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.
 
 Examples:
-    get-selection
-    get-selection Level_A
+    get-selected-entities
+    get-selected-entities Level_A
 """
 
 import json

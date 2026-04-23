@@ -34,7 +34,7 @@ Nine CLI tools are installed in `Tools/` at the project root. Prefer these over 
 |---|---|
 | `Tools/query-scene <scene> "<filter>"` | Find entities matching field criteria without opening every file |
 | `Tools/query-logs <type> [substring]` | Read Unity Editor.log filtered by type |
-| `Tools/get-selection [scene]` | Get UUIDs of currently selected entities |
+| `Tools/get-selected-entities [scene]` | Get UUIDs of currently selected entities |
 | `Tools/select-entities [scene] <uuid>...` | Set the Unity Editor selection by UUID |
 | `Tools/get-scene-path [scene]` | Get the active scene asset path |
 | `Tools/get-camera [scene]` | Get scene view camera position and rotation |
@@ -70,11 +70,11 @@ Tools/query-logs Log "[UnityAIBridge]"
 
 Types: `Error  Warning  Log  Exception  Assert` — type argument is required.
 
-### get-selection / select-entities
+### get-selected-entities / select-entities
 
 ```bash
-Tools/get-selection                          # returns UUID array for current selection
-Tools/get-selection Level_A                  # scoped to a specific scene
+Tools/get-selected-entities                          # returns UUID array for current selection
+Tools/get-selected-entities Level_A                  # scoped to a specific scene
 Tools/select-entities <uuid> <uuid> ...      # select entities by UUID
 Tools/select-entities Level_A <uuid> ...     # scoped to a specific scene
 Tools/select-entities                        # clear selection

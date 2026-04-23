@@ -9,10 +9,10 @@ detailed field evaluation. Works with Unity closed.
 
 --stdin reads a UUID scope from stdin (one per line or JSON array) and evaluates
 the filter only within that set — skipping the index and full scene scan.
-Composes with get-visible-entities, get-selection, and other UUID-producing tools:
+Composes with get-visible-entities, get-selected-entities, and other UUID-producing tools:
 
   get-visible-entities | query-scene --stdin Level_A "name contains Tree"
-  get-selection | query-scene --stdin Level_A "component == Enemy"
+  get-selected-entities | query-scene --stdin Level_A "component == Enemy"
 
 <scene-name> is the scene directory name (path relative to Assets/SceneData).
 

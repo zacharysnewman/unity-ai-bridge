@@ -55,7 +55,7 @@ Steps:
 5. Install CLI tools:
    - Create `<project-root>/Tools/` if it does not already exist.
    - Copy each script from the package `Tools/` directory:
-     - `Tools/get-selection`      → `<project-root>/Tools/get-selection`
+     - `Tools/get-selected-entities`      → `<project-root>/Tools/get-selected-entities`
      - `Tools/select-entities`    → `<project-root>/Tools/select-entities`
      - `Tools/get-scene-path`     → `<project-root>/Tools/get-scene-path`
      - `Tools/get-camera`         → `<project-root>/Tools/get-camera`
