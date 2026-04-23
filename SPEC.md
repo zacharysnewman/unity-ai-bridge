@@ -458,9 +458,24 @@ public struct EntityReference { public string targetUUID; }
 // Resolve: SceneDataManager.Instance.GetByUUID(ref.targetUUID)
 ```
 
-**`ScriptableObject` fields** serialize as project-relative asset paths (unchanged).
+**All `UnityEngine.Object` asset fields** (`ScriptableObject`, `Texture2D`, `AudioClip`, `Material`, `Sprite`, `Mesh`, `AnimationClip`, prefab `GameObject` references, etc.) serialize as project-relative asset paths. A null reference serializes as JSON `null`. Built-in Unity assets with no project path serialize as `null` and are skipped on apply.
 
-**Other `UnityEngine.Object` subclass fields** (e.g., `Texture`, `AudioClip`) are not serialized in `customData` — these are asset references that should come from the prefab or be assigned via `ScriptableObject` wrappers.
+**Main assets** (one object per file) serialize as a plain path string:
+
+```json
+"icon": "Assets/UI/Icons/star.png",
+"clip": "Assets/Audio/explosion.wav",
+"mat": "Assets/Materials/Glow.mat"
+```
+
+**Sub-assets** (objects embedded inside another file — a sprite in an atlas, a mesh inside an FBX) serialize as a `{ "path", "name" }` object so the specific sub-object can be recovered:
+
+```json
+"icon": { "path": "Assets/UI/Icons.png", "name": "star" },
+"mesh": { "path": "Assets/Models/Enemy.fbx", "name": "Enemy_Head" }
+```
+
+On apply, sub-asset references are resolved by scanning all assets at the path and matching by name and type. If two sub-assets at the same path share the same name (unusual, but possible in sprite sheets), the first match is used.
 
 > **Known limitation (multi-scene):** `SceneDataManager.Instance` is a static singleton — it returns the manager that was most recently enabled. In an additively-loaded multi-scene setup, cross-scene `EntityReference` resolution via `Instance` will only search the last-enabled scene's registry. To resolve a UUID from a specific scene, hold a direct reference to that scene's `SceneDataManager` and call `GetByUUID` on it directly. UUIDs are only required to be unique within a scene, so two additively-loaded scenes may share UUIDs without registry collision.
 >
@@ -633,7 +648,7 @@ The solution is a **sidecar `index.ndjson`** (§3.1) plus a three-layer query mo
 | **OS-level scene moves** | `SceneAssetModificationProcessor` only intercepts Project-window operations. Moving or renaming scene files via the OS (Finder, `mv`) bypasses it; the data directory must be moved manually and `AssetDatabase.Refresh` called. |
 | **Multi-scene `Instance` singleton** | `SceneDataManager.Instance` returns the last-enabled manager. Cross-scene `EntityReference` resolution via `Instance` only searches one scene's registry. Hold a direct reference to the specific scene's `SceneDataManager` for cross-scene lookups. |
 | **`patch-entities` write path** | `patch-entities` writes to both `customData` and `builtInComponents` entries. Flat field values are patchable; nested object fields (e.g. `m_Center.x` inside a collider's center struct) are not — edit the entity JSON file directly for those. |
-| **`builtInComponents` array cap** | Arrays on built-in components with more than 256 elements are silently truncated during serialization. |
+| **`builtInComponents` large arrays** | Arrays on built-in components with more than 256 elements log a warning during serialization. All elements are serialized — no truncation. |
 | **Schema migration** | Version mismatch between `manifest.json` `schemaVersion` and the package's expected version aborts loading entirely. No automatic migration; requires manual update. |
 | **`isDirty` in builds** | `EntitySync.isDirty` is in the Runtime assembly without a `#if UNITY_EDITOR` guard — dead weight in player builds. Guarding it is a pending improvement. |
 

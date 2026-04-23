@@ -170,8 +170,10 @@ Or read individual entity files to understand their current state before editing
 | Mark as static / non-static | Edit `isStatic` (bool — sets or clears all static editor flags) |
 | Reparent an object | Edit `parentUuid` to the new parent's UUID |
 | Detach from parent (make root-level) | Set `parentUuid` to `null` |
-| Change a built-in component value | Edit the relevant field inside `builtInComponents` (use Unity's internal property names, e.g. `m_Size`, `m_IsTrigger`) |
+| Change a built-in component value | Edit the relevant field inside `builtInComponents` (use Unity's internal property names, e.g. `m_Size`, `m_IsTrigger`, `m_Materials`) |
 | Change a component value | Edit the relevant field inside `customData` |
+| Change an asset reference on a component | Edit the asset path string in `customData` (e.g. `"icon": "Assets/UI/Icons/star.png"`); sub-assets use `{ "path": "...", "name": "..." }` |
+| Change a scene-object reference on a component | Edit the `targetUUID` inside the `{ "targetUUID": "..." }` object for that field |
 | Add a component to an object | Add a new entry to `customData` with the correct `type` and field values |
 | Remove a component from an object | Delete the corresponding entry from the `customData` array — the `customData` array is treated as the complete truth; any MonoBehaviour absent from it will be destroyed on the GameObject |
 | Delete an object | Delete `Entities/<uuid>.json` — child entities are removed automatically |
@@ -190,7 +192,6 @@ When making multiple changes, order matters:
 ### When not to edit JSON
 
 - **During Play Mode** — the write pipeline and hot-reload pipeline are both suspended; JSON changes made during play won't be picked up until you use *Force Reload Scene* after exiting
-- **To change built-in component values** (Rigidbody, Collider, MeshRenderer, etc.) — these come from the prefab and are not in the JSON
 
 ---
 
@@ -286,14 +287,17 @@ Only custom `MonoBehaviour` components are serialized. Built-in Unity components
 
 ## Cross-Entity References
 
-Direct `GameObject` references cannot survive JSON round-trips. Use `EntityReference` instead:
+**Direct `GameObject` and `Component` fields** in custom scripts are serialized automatically as UUID references — no wrapper needed:
 
-**In the JSON:**
 ```json
-"triggerTarget": { "targetUUID": "8a7b6c5d-..." }
+"target":     { "targetUUID": "8a7b6c5d-..." },
+"spawnPoint": { "targetUUID": "1a2b3c4d-..." }
 ```
 
-**In C#:**
+Set `targetUUID` to the UUID of the entity you want to reference. The field is wired up to the live object at load time.
+
+**`EntityReference` struct** is still available when runtime resolution is preferred over editor-time wiring:
+
 ```csharp
 [Serializable]
 public struct EntityReference { public string targetUUID; }
@@ -302,6 +306,25 @@ public EntityReference triggerTarget;
 // Resolve at runtime:
 var go = SceneDataManager.Instance.GetByUUID(triggerTarget.targetUUID);
 ```
+
+## Asset References
+
+Asset fields (`Texture2D`, `AudioClip`, `Material`, `ScriptableObject`, prefab `GameObject`, etc.) serialize as project-relative asset paths:
+
+```json
+"icon":   "Assets/UI/Icons/star.png",
+"clip":   "Assets/Audio/SFX/explosion.wav",
+"config": "Assets/Data/EnemyConfig.asset"
+```
+
+Sub-assets (a sprite inside an atlas, a mesh inside an FBX) use a `{ "path", "name" }` form:
+
+```json
+"sprite": { "path": "Assets/UI/Icons.png", "name": "star" },
+"mesh":   { "path": "Assets/Models/Enemy.fbx", "name": "Enemy_Head" }
+```
+
+A `null` field serializes as `null` and is left unchanged on apply.
 
 ---
 
@@ -397,5 +420,5 @@ See `Schemas/entity.schema.json` for the full entity schema, including transform
 - Do not modify `schemaVersion` in `manifest.json`
 - Do not set `hideFlags` on entity GameObjects — entities are normal persistent scene objects
 - Do not write entity files during Play Mode — the write pipeline is suspended
-- Do not use direct `GameObject` or `MonoBehaviour` references in serialized fields — use `EntityReference`
+- Do not use direct `GameObject` or `MonoBehaviour` references in serialized fields for runtime cross-scene lookups — use `EntityReference` for those cases; direct fields work for same-scene editor-time wiring
 - Do not assume component order is stable across sessions for same-type multi-components

@@ -177,9 +177,10 @@ namespace UnityAIBridge.Editor
         {
             if (prop.isArray)
             {
+                if (prop.arraySize > 256)
+                    Debug.LogWarning($"[UnityAIBridge] Large array on '{prop.name}' ({prop.arraySize} elements) — serializing all; consider whether this data should live in the entity JSON");
                 var arr = new JArray();
-                int cap = Math.Min(prop.arraySize, 256);
-                for (int i = 0; i < cap; i++)
+                for (int i = 0; i < prop.arraySize; i++)
                 {
                     var elem = prop.GetArrayElementAtIndex(i);
                     arr.Add(SerializeProp(elem) ?? JValue.CreateNull());
