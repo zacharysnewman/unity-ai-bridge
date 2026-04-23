@@ -38,7 +38,7 @@ Nine CLI tools are installed in `Tools/` at the project root. Prefer these over 
 | `Tools/select-entities [scene] <uuid>...` | Set the Unity Editor selection by UUID |
 | `Tools/get-scene-path [scene]` | Get the active scene asset path |
 | `Tools/get-camera [scene]` | Get scene view camera position and rotation |
-| `Tools/get-visible-objects [scene]` | Get UUIDs of entities visible in the scene view frustum |
+| `Tools/get-visible-entities [scene]` | Get UUIDs of entities visible in the scene view frustum |
 | `Tools/patch-entities <scene> "<filter>" "<patch>"` | Batch-apply a field mutation to all matching entities |
 | `Tools/create-entities <scene> '<spec-json>'` | Create new entities and return their UUIDs |
 | `Tools/delete-entities <scene> <uuid>...` | Delete entities by UUID |
@@ -84,16 +84,16 @@ Tools/select-entities --stdin                # read UUIDs from stdin (JSON array
 `--stdin` makes `select-entities` composable with any UUID-producing tool:
 
 ```bash
-Tools/get-visible-objects | Tools/select-entities --stdin
+Tools/get-visible-entities | Tools/select-entities --stdin
 Tools/query-scene Level_A "component == Enemy" | Tools/select-entities --stdin
 ```
 
-### get-scene-path / get-camera / get-visible-objects
+### get-scene-path / get-camera / get-visible-entities
 
 ```bash
 Tools/get-scene-path                         # returns active scene asset path
 Tools/get-camera                             # returns scene view camera pos and rot
-Tools/get-visible-objects                    # returns UUIDs visible in the frustum
+Tools/get-visible-entities                    # returns UUIDs visible in the frustum
 Tools/get-camera Level_A                     # scoped to a specific scene
 ```
 

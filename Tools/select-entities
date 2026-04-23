@@ -10,9 +10,9 @@ the change instantly.
 Pass no UUIDs to clear the selection.
 
 --stdin reads UUIDs from stdin. Accepts a JSON array or one UUID per line,
-making it composable with get-visible-objects and query-scene:
+making it composable with get-visible-entities and query-scene:
 
-    Tools/get-visible-objects | Tools/select-entities --stdin
+    Tools/get-visible-entities | Tools/select-entities --stdin
     Tools/query-scene Level_A "component == Enemy" | Tools/select-entities --stdin
 
 If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.

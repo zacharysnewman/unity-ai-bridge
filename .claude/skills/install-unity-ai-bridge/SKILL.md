@@ -59,7 +59,7 @@ Steps:
      - `Tools/select-entities`    → `<project-root>/Tools/select-entities`
      - `Tools/get-scene-path`     → `<project-root>/Tools/get-scene-path`
      - `Tools/get-camera`         → `<project-root>/Tools/get-camera`
-     - `Tools/get-visible-objects` → `<project-root>/Tools/get-visible-objects`
+     - `Tools/get-visible-entities` → `<project-root>/Tools/get-visible-entities`
      - `Tools/patch-entities`     → `<project-root>/Tools/patch-entities`
      - `Tools/query-scene`        → `<project-root>/Tools/query-scene`
      - `Tools/query-logs`         → `<project-root>/Tools/query-logs`

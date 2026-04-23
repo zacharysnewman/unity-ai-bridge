@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-get-visible-objects [scene-name]
+get-visible-entities [scene-name]
 
-Prints the UUIDs of objects currently visible in the scene view frustum as a JSON array.
+Prints the UUIDs of entities currently visible in the scene view frustum as a JSON array.
 If no scene name is given, searches Assets/SceneData/ for a single editor-state.json.
 
 Examples:
-    get-visible-objects
-    get-visible-objects Level_A
+    get-visible-entities
+    get-visible-entities Level_A
 """
 
 import json

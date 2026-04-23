@@ -19,10 +19,10 @@ Field paths (same as query-scene):
   Any field present in customData entries
 
 --stdin reads UUIDs from stdin (one per line or JSON array) instead of running
-a filter, making it composable with query-scene and get-visible-objects:
+a filter, making it composable with query-scene and get-visible-entities:
 
   query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
-  get-visible-objects Level_A | patch-entities --stdin Level_A "transform.pos.y += 2"
+  get-visible-entities Level_A | patch-entities --stdin Level_A "transform.pos.y += 2"
 
 --undo reverts the most recent patch recorded in patch-history.json.
 

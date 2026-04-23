@@ -11,7 +11,7 @@ undone with --undo. The history slot is shared with patch-entities and
 create-entities, giving a single unified undo stack across all mutation tools.
 
 --stdin reads UUIDs from stdin (one per line or JSON array), making it
-composable with query-scene, get-selection, and get-visible-objects:
+composable with query-scene, get-selection, and get-visible-entities:
 
   query-scene Level_A "component == Enemy" | delete-entities Level_A --stdin
   get-selection Level_A | delete-entities Level_A --stdin
