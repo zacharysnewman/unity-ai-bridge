@@ -25,6 +25,7 @@ namespace UnityAIBridge.Editor
         {
             Converters = { new UnityMathConverter() },
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+            MaxDepth = 8,
         });
 
         // ─── Primitive path prefix ────────────────────────────────────────────────
