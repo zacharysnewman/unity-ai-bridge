@@ -906,7 +906,8 @@ namespace UnityAIBridge.Editor
                     "}\n");
             }
 
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            string manifestRelPath = GetRelativePath(manifestPath);
+            AssetDatabase.ImportAsset(manifestRelPath, ImportAssetOptions.ForceUpdate);
 
             // Migrate all unmanaged scene objects into JSON sync.
             EditorCoroutineRunner.StartEditorCoroutine(MigrateScene(manager));
