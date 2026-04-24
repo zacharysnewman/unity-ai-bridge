@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.0.1...v1.1.0) (2026-04-24)
+
+
+### Features
+
+* reorganize installable assets into ClaudeIntegration/ mirror directory ([4bf7068](https://github.com/zacharysnewman/unity-ai-bridge/commit/4bf7068739be45287168f04fb15223912e1fa0db))
+
 ## [1.0.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.0.0...v1.0.1) (2026-04-24)
 
 
