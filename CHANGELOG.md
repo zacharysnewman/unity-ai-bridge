@@ -1,3 +1,10 @@
+## [1.1.6](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.5...v1.1.6) (2026-04-24)
+
+
+### Bug Fixes
+
+* replace ForceSynchronousImport with targeted manifest ImportAsset ([d266bc1](https://github.com/zacharysnewman/unity-ai-bridge/commit/d266bc1a9041d02a8da15f8e88b8317bcdc3da06))
+
 ## [1.1.5](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.4...v1.1.5) (2026-04-24)
 
 
