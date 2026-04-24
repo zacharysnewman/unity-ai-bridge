@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.0.0...v1.0.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* add missing meta file for CHANGELOG.md ([e5613f5](https://github.com/zacharysnewman/unity-ai-bridge/commit/e5613f5bd08ecbd30e67f368ac16ab2333d025cc))
+
 # 1.0.0 (2026-04-24)
 
 
