@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.2...v1.1.3) (2026-04-24)
+
+
+### Bug Fixes
+
+* skip SetDirty on hot-reload apply failure to prevent JSON corruption ([30c1825](https://github.com/zacharysnewman/unity-ai-bridge/commit/30c182563da6053d92ee34fe4f3fcb234156a093))
+
 ## [1.1.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.1...v1.1.2) (2026-04-24)
 
 
