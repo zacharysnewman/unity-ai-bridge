@@ -1,7 +1,3 @@
-<!-- PACKAGE-ONLY-BEGIN -->
-> **Package development note:** All installable files live in `ClaudeIntegration/` — this folder mirrors the install destination and is what the Unity menu item copies into consumer projects. To update a consumer project (including this dev repo's own `Tools/` and `.claude/`), run **Unity AI Bridge → Setup Claude Code Integration** from the Unity menu, then `/install-unity-ai-bridge` to refresh CLAUDE.md.
-<!-- PACKAGE-ONLY-END -->
-
 # Unity AI Bridge — Claude Code Guide
 
 This package implements a **bidirectional sync** between JSON files on disk and a Unity scene.

@@ -4,20 +4,11 @@ using UnityEngine;
 
 namespace UnityAIBridge.Editor
 {
-    /// <summary>
-    /// Bootstraps Claude Code integration by copying the install skill into the
-    /// project root's .claude/skills/ directory. Once installed, open Claude Code
-    /// from the project root and run /install-unity-ai-bridge to complete setup.
-    /// </summary>
     public static class AIBridgeInstaller
     {
-        private const string SkillName = "install-unity-ai-bridge";
-        private const string SkillFileName = "SKILL.md";
-
         [MenuItem("Unity AI Bridge/Setup Claude Code Integration", priority = 1)]
         public static void SetupClaudeCodeIntegration()
         {
-            // Locate this package's directory via its assembly
             var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(
                 System.Reflection.Assembly.GetExecutingAssembly());
 
@@ -31,36 +22,59 @@ namespace UnityAIBridge.Editor
             }
 
             string packageRoot = packageInfo.resolvedPath;
-            string sourceSkillPath = Path.Combine(
-                packageRoot, ".claude", "skills", SkillName, SkillFileName);
+            string sourceDir = Path.Combine(packageRoot, "ClaudeIntegration");
 
-            if (!File.Exists(sourceSkillPath))
+            if (!Directory.Exists(sourceDir))
             {
                 EditorUtility.DisplayDialog(
                     "Unity AI Bridge",
-                    $"Install skill not found at:\n{sourceSkillPath}",
+                    $"ClaudeIntegration directory not found at:\n{sourceDir}",
                     "OK");
                 return;
             }
 
-            // Project root is the parent of Assets/
             string projectRoot = Path.GetDirectoryName(Application.dataPath);
-            string destDir = Path.Combine(
-                projectRoot, ".claude", "skills", SkillName);
-            string destPath = Path.Combine(destDir, SkillFileName);
+            CopyDirectory(sourceDir, projectRoot);
+            MakeToolsExecutable(Path.Combine(projectRoot, "Tools"));
 
-            Directory.CreateDirectory(destDir);
-            File.Copy(sourceSkillPath, destPath, overwrite: true);
-
-            Debug.Log($"[UnityAIBridge] Install skill copied to {destPath}");
+            Debug.Log($"[UnityAIBridge] Claude Code integration installed to {projectRoot}");
 
             EditorUtility.DisplayDialog(
                 "Unity AI Bridge — Claude Code Integration",
-                "Install skill is ready.\n\n" +
+                "Tools and skills are ready.\n\n" +
                 "Open Claude Code from your Unity project root and run:\n\n" +
                 "    /install-unity-ai-bridge\n\n" +
-                "Claude will complete the setup, including skills, tools, and CLAUDE.md.",
+                "Claude will write the Unity AI Bridge documentation into your CLAUDE.md.",
                 "OK");
+        }
+
+        static void CopyDirectory(string sourceDir, string destDir)
+        {
+            Directory.CreateDirectory(destDir);
+
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string dest = Path.Combine(destDir, Path.GetFileName(file));
+                File.Copy(file, dest, overwrite: true);
+            }
+
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string destSubDir = Path.Combine(destDir, Path.GetFileName(subDir));
+                CopyDirectory(subDir, destSubDir);
+            }
+        }
+
+        static void MakeToolsExecutable(string toolsDir)
+        {
+            if (!Directory.Exists(toolsDir))
+                return;
+
+            foreach (string file in Directory.GetFiles(toolsDir))
+            {
+                if (!file.EndsWith(".meta"))
+                    System.Diagnostics.Process.Start("chmod", $"+x \"{file}\"");
+            }
         }
     }
 }
