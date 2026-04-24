@@ -508,6 +508,8 @@ namespace UnityAIBridge.Editor
         /// Serializes a GameObject to JSON and writes to disk.
         /// Skips the write if the serialized content is identical to what's already on disk (diff-guard).
         /// </summary>
+        internal static bool SuppressAssetImport = false;
+
         public static void WriteEntity(GameObject go, string entitiesDir)
         {
             var sync = go.GetComponent<EntitySync>();
@@ -534,11 +536,11 @@ namespace UnityAIBridge.Editor
             sync.isDirty = false;
             IndexWriter.UpsertEntity(go, Path.GetDirectoryName(entitiesDir));
 
-            // --- THE FIX: Force Unity to see the new/updated file ---
-            // We use ImportAsset because it's faster than a full Refresh() 
-            // when we know exactly which file changed.
-            string relativePath = GetRelativePath(filePath);
-            AssetDatabase.ImportAsset(relativePath, ImportAssetOptions.ForceUpdate);
+            if (!SuppressAssetImport)
+            {
+                string relativePath = GetRelativePath(filePath);
+                AssetDatabase.ImportAsset(relativePath, ImportAssetOptions.ForceUpdate);
+            }
         }
 
         // Helper to convert an absolute path back to a Unity "Assets/..." path
@@ -947,6 +949,7 @@ namespace UnityAIBridge.Editor
                 // SuppressWriteEvents prevents ObjectChangeEvents from writing
                 // individual JSON files while we're adding components in bulk.
                 LiveSyncController.SuppressWriteEvents = true;
+                SuppressAssetImport = true;
                 int newCount = 0;
                 for (int i = 0; i < allObjects.Count; i++)
                 {
@@ -967,7 +970,9 @@ namespace UnityAIBridge.Editor
                 // Pass 2 — write JSON for all managed objects (new and pre-existing).
                 // Pre-existing EntitySync objects may not be in the registry yet — register them.
                 // WriteEntity's diff-guard skips unchanged files on repeat runs.
+                // AssetDatabase.ImportAsset is suppressed for the whole pass — one Refresh at the end.
                 int writtenCount = 0;
+                int errorCount = 0;
                 for (int i = 0; i < allObjects.Count; i++)
                 {
                     var go = allObjects[i];
@@ -980,17 +985,34 @@ namespace UnityAIBridge.Editor
                     if (manager.GetByUUID(sync.uuid) == null)
                         manager.Register(sync.uuid, go);
 
-                    WriteEntity(go, entitiesDir);
-                    writtenCount++;
+                    try
+                    {
+                        WriteEntity(go, entitiesDir);
+                        writtenCount++;
+                    }
+                    catch (Exception e)
+                    {
+                        errorCount++;
+                        Debug.LogError($"[UnityAIBridge] Migration: failed to write '{go.name}' (uuid={sync.uuid}): {e.Message}\n{e.StackTrace}");
+                    }
                     yield return null;
                 }
 
+                SuppressAssetImport = false;
+                AssetDatabase.Refresh();
+
                 EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-                Debug.Log($"[UnityAIBridge] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written.");
+                string errorSuffix = errorCount > 0 ? $", {errorCount} error{(errorCount == 1 ? "" : "s")} (see Console)" : "";
+                Debug.Log($"[UnityAIBridge] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written{errorSuffix}.");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[UnityAIBridge] Migration aborted: {e.Message}\n{e.StackTrace}");
             }
             finally
             {
                 LiveSyncController.SuppressWriteEvents = false;
+                SuppressAssetImport = false;
                 EditorUtility.ClearProgressBar();
             }
         }
