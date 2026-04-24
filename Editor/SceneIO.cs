@@ -810,17 +810,21 @@ namespace UnityAIBridge.Editor
             if (siblingIndex >= 0)
                 go.transform.SetSiblingIndex(siblingIndex);
 
+            bool applySucceeded = false;
             try
             {
                 ApplyGoProperties(go, data);
                 ApplyTransform(go, data["transform"] as JObject);
                 ReconcileComponents(go, data["customData"] as JArray, manager);
                 BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
+                applySucceeded = true;
             }
             catch (Exception e)
             {
-                Debug.LogError($"[UnityAIBridge] HotReload: failed to apply entity '{go.name}' (uuid={uuid}): {e.Message}\n{e.StackTrace}");
+                Debug.LogError($"[UnityAIBridge] HotReload: failed to apply entity '{go.name}' (uuid={uuid}) — scene object NOT marked dirty to prevent JSON corruption: {e.Message}\n{e.StackTrace}");
             }
+
+            if (!applySucceeded) return;
 
             EditorUtility.SetDirty(go);
             if (go.scene.IsValid())
