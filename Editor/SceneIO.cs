@@ -182,10 +182,18 @@ namespace UnityAIBridge.Editor
                 for (int i = 0; i < entityData.Count; i++)
                 {
                     var (uuid, data, go) = entityData[i];
-                    ApplyGoProperties(go, data);
-                    ApplyTransform(go, data["transform"] as JObject);
-                    ReconcileComponents(go, data["customData"] as JArray, manager);
-                    BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
+                    try
+                    {
+                        ApplyGoProperties(go, data);
+                        ApplyTransform(go, data["transform"] as JObject);
+                        ReconcileComponents(go, data["customData"] as JArray, manager);
+                        BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
+                    }
+                    catch (Exception e)
+                    {
+                        string entityName = data.Value<string>("name") ?? uuid;
+                        Debug.LogError($"[UnityAIBridge] Failed to apply entity '{entityName}' (uuid={uuid}): {e.Message}\n{e.StackTrace}");
+                    }
                     EditorUtility.DisplayProgressBar("Unity AI Bridge", "Finishing...", 0.66f + (float)i / entityData.Count * 0.34f);
                 }
 
@@ -291,8 +299,12 @@ namespace UnityAIBridge.Editor
 
             var scl = t["scl"] as JArray;
             if (scl != null && scl.Count == 3)
-                go.transform.localScale = new Vector3(
-                    scl[0].Value<float>(), scl[1].Value<float>(), scl[2].Value<float>());
+            {
+                var s = new Vector3(scl[0].Value<float>(), scl[1].Value<float>(), scl[2].Value<float>());
+                if (s.x == 0f || s.y == 0f || s.z == 0f)
+                    Debug.LogWarning($"[UnityAIBridge] Entity '{go.name}' has a zero scale component {s} — this causes 'Matrix get_rotation() failed'. Fix the 'scl' field in its JSON.");
+                go.transform.localScale = s;
+            }
         }
 
         private static void ApplyGoProperties(GameObject go, JObject data)
@@ -798,10 +810,17 @@ namespace UnityAIBridge.Editor
             if (siblingIndex >= 0)
                 go.transform.SetSiblingIndex(siblingIndex);
 
-            ApplyGoProperties(go, data);
-            ApplyTransform(go, data["transform"] as JObject);
-            ReconcileComponents(go, data["customData"] as JArray, manager);
-            BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
+            try
+            {
+                ApplyGoProperties(go, data);
+                ApplyTransform(go, data["transform"] as JObject);
+                ReconcileComponents(go, data["customData"] as JArray, manager);
+                BuiltInComponentSerializer.ReconcileAll(go, data["builtInComponents"] as JArray);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[UnityAIBridge] HotReload: failed to apply entity '{go.name}' (uuid={uuid}): {e.Message}\n{e.StackTrace}");
+            }
 
             EditorUtility.SetDirty(go);
             if (go.scene.IsValid())
