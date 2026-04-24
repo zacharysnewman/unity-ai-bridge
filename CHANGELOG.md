@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.0...v1.1.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* add missing meta file for ClaudeIntegration directory ([5dee148](https://github.com/zacharysnewman/unity-ai-bridge/commit/5dee148f3dd31341bcac47d5e86c851d042341e1))
+
 # [1.1.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.0.1...v1.1.0) (2026-04-24)
 
 
