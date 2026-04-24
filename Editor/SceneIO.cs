@@ -1005,10 +1005,6 @@ namespace UnityAIBridge.Editor
                 string errorSuffix = errorCount > 0 ? $", {errorCount} error{(errorCount == 1 ? "" : "s")} (see Console)" : "";
                 Debug.Log($"[UnityAIBridge] Migration complete — {newCount} new entit{(newCount == 1 ? "y" : "ies")} registered, {writtenCount} JSON file{(writtenCount == 1 ? "" : "s")} written{errorSuffix}.");
             }
-            catch (Exception e)
-            {
-                Debug.LogError($"[UnityAIBridge] Migration aborted: {e.Message}\n{e.StackTrace}");
-            }
             finally
             {
                 LiveSyncController.SuppressWriteEvents = false;

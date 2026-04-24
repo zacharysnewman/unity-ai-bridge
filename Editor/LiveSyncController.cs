@@ -517,8 +517,16 @@ namespace UnityAIBridge.Editor
         {
             for (int i = _coroutines.Count - 1; i >= 0; i--)
             {
-                if (!_coroutines[i].MoveNext())
+                try
+                {
+                    if (!_coroutines[i].MoveNext())
+                        _coroutines.RemoveAt(i);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[UnityAIBridge] Unhandled exception in editor coroutine: {e.Message}\n{e.StackTrace}");
                     _coroutines.RemoveAt(i);
+                }
             }
 
             if (_coroutines.Count == 0)
