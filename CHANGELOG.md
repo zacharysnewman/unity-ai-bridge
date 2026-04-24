@@ -1,3 +1,10 @@
+## [1.1.7](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.6...v1.1.7) (2026-04-24)
+
+
+### Bug Fixes
+
+* add MaxDepth to FieldSerializer to prevent hang on complex Unity objects ([e91b38e](https://github.com/zacharysnewman/unity-ai-bridge/commit/e91b38e6c1d9c4caf9e3d3dfd3a98a247c82598f))
+
 ## [1.1.6](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.5...v1.1.6) (2026-04-24)
 
 
