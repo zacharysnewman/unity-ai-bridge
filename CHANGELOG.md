@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.1...v1.1.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* catch per-entity apply failures during bootstrap and hot-reload ([76ae76f](https://github.com/zacharysnewman/unity-ai-bridge/commit/76ae76fc70304a0cf9ca0190feff74d774f08652))
+
 ## [1.1.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.0...v1.1.1) (2026-04-24)
 
 
