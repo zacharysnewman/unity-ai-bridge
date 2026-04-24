@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.3...v1.1.4) (2026-04-24)
+
+
+### Bug Fixes
+
+* prevent migration hang from per-entity AssetDatabase.ImportAsset ([01a05cb](https://github.com/zacharysnewman/unity-ai-bridge/commit/01a05cb04392d3be5f132ee88dd159ac2f731dfd))
+
 ## [1.1.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.2...v1.1.3) (2026-04-24)
 
 
