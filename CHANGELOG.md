@@ -1,3 +1,10 @@
+## [1.1.5](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.4...v1.1.5) (2026-04-24)
+
+
+### Bug Fixes
+
+* remove yield-in-try-catch CS1626 errors in MigrateScene ([50ad74d](https://github.com/zacharysnewman/unity-ai-bridge/commit/50ad74d10448b20c689b9eedca0bd46b377196ee))
+
 ## [1.1.4](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.3...v1.1.4) (2026-04-24)
 
 
