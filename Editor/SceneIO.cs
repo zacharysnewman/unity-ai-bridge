@@ -700,48 +700,48 @@ namespace UnityAIBridge.Editor
             foreach (var field in fields)
             {
                 InitLog.Write($"         field: {field.Name} ({field.FieldType.Name})");
-
-                // Single GameObject or Component reference → entity UUID or null
-                if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
-                    typeof(Component).IsAssignableFrom(field.FieldType))
-                {
-                    entry[field.Name] = SerializeEntityReference(field.GetValue(component) as UnityEngine.Object, type, field.Name);
-                    continue;
-                }
-
-                // Single UnityEngine.Object (asset) reference → asset path
-                if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
-                {
-                    entry[field.Name] = SerializeAssetReference(field.GetValue(component) as UnityEngine.Object);
-                    continue;
-                }
-
-                // Array or List<T> whose element type is a UnityEngine.Object subclass
-                Type elemType = GetUnityObjectCollectionElementType(field.FieldType);
-                if (elemType != null)
-                {
-                    var collection = field.GetValue(component) as System.Collections.IEnumerable;
-                    if (collection == null) { entry[field.Name] = JValue.CreateNull(); continue; }
-                    bool isEntityType = typeof(GameObject).IsAssignableFrom(elemType) || typeof(Component).IsAssignableFrom(elemType);
-                    var jArr = new JArray();
-                    foreach (var item in collection)
-                    {
-                        var refObj = item as UnityEngine.Object;
-                        jArr.Add(isEntityType
-                            ? SerializeEntityReference(refObj, type, field.Name)
-                            : SerializeAssetReference(refObj));
-                    }
-                    entry[field.Name] = jArr;
-                    continue;
-                }
-
                 try
                 {
+                    // Single GameObject or Component reference → entity UUID or null
+                    if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
+                        typeof(Component).IsAssignableFrom(field.FieldType))
+                    {
+                        entry[field.Name] = SerializeEntityReference(field.GetValue(component) as UnityEngine.Object, type, field.Name);
+                        continue;
+                    }
+
+                    // Single UnityEngine.Object (asset) reference → asset path
+                    if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
+                    {
+                        entry[field.Name] = SerializeAssetReference(field.GetValue(component) as UnityEngine.Object);
+                        continue;
+                    }
+
+                    // Array or List<T> whose element type is a UnityEngine.Object subclass
+                    Type elemType = GetUnityObjectCollectionElementType(field.FieldType);
+                    if (elemType != null)
+                    {
+                        var collection = field.GetValue(component) as System.Collections.IEnumerable;
+                        if (collection == null) { entry[field.Name] = JValue.CreateNull(); continue; }
+                        bool isEntityType = typeof(GameObject).IsAssignableFrom(elemType) || typeof(Component).IsAssignableFrom(elemType);
+                        var jArr = new JArray();
+                        foreach (var item in collection)
+                        {
+                            var refObj = item as UnityEngine.Object;
+                            jArr.Add(isEntityType
+                                ? SerializeEntityReference(refObj, type, field.Name)
+                                : SerializeAssetReference(refObj));
+                        }
+                        entry[field.Name] = jArr;
+                        continue;
+                    }
+
                     object value = field.GetValue(component);
                     entry[field.Name] = value != null ? JToken.FromObject(value, FieldSerializer) : JValue.CreateNull();
                 }
                 catch (Exception e)
                 {
+                    InitLog.Write($"           WARN: {e.Message}");
                     Debug.LogWarning($"[UnityAIBridge] Failed to serialize field {field.Name} on {type.Name}: {e.Message}");
                 }
             }
@@ -1259,6 +1259,7 @@ namespace UnityAIBridge.Editor
     /// <summary>
     /// Writes a crash-safe init log to disk. Each Write() call flushes immediately so
     /// the file is complete up to the last line even if Unity crashes mid-operation.
+    /// Also forwards Unity console errors/exceptions into the file automatically.
     /// </summary>
     public static class InitLog
     {
@@ -1269,6 +1270,7 @@ namespace UnityAIBridge.Editor
         {
             _path = Path.Combine(sceneDataPath, "init-log.txt");
             File.WriteAllText(_path, $"[InitLog] Started {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n");
+            Application.logMessageReceived += OnLogMessage;
         }
 
         public static void Write(string message)
@@ -1279,8 +1281,15 @@ namespace UnityAIBridge.Editor
 
         public static void End()
         {
+            Application.logMessageReceived -= OnLogMessage;
             Write($"[InitLog] Finished {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
             _path = null;
+        }
+
+        private static void OnLogMessage(string message, string stackTrace, LogType type)
+        {
+            if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+                Write($"  [UNITY {type.ToString().ToUpper()}] {message}\n{stackTrace}");
         }
     }
 
