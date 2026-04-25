@@ -700,32 +700,38 @@ namespace UnityAIBridge.Editor
             foreach (var field in fields)
             {
                 InitLog.Write($"         field: {field.Name} ({field.FieldType.Name})");
+
+                // Single GameObject or Component reference → entity UUID or null
                 if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
                     typeof(Component).IsAssignableFrom(field.FieldType))
                 {
-                    var refObj = field.GetValue(component) as UnityEngine.Object;
-                    if (refObj == null) { entry[field.Name] = JValue.CreateNull(); continue; }
-                    string assetPath = AssetDatabase.GetAssetPath(refObj);
-                    if (!string.IsNullOrEmpty(assetPath))
-                    {
-                        entry[field.Name] = new JValue(assetPath);
-                        continue;
-                    }
-                    var refGo = refObj is GameObject gObj ? gObj : ((Component)refObj).gameObject;
-                    var refSync = refGo.GetComponent<EntitySync>();
-                    if (refSync != null && !string.IsNullOrEmpty(refSync.uuid))
-                        entry[field.Name] = new JObject { ["targetUUID"] = refSync.uuid };
-                    else
-                    {
-                        entry[field.Name] = JValue.CreateNull();
-                        Debug.LogWarning($"[UnityAIBridge] Field {field.Name} on {type.Name} references a GameObject with no EntitySync — serialized as null");
-                    }
+                    entry[field.Name] = SerializeEntityReference(field.GetValue(component) as UnityEngine.Object, type, field.Name);
                     continue;
                 }
 
+                // Single UnityEngine.Object (asset) reference → asset path
                 if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
                 {
                     entry[field.Name] = SerializeAssetReference(field.GetValue(component) as UnityEngine.Object);
+                    continue;
+                }
+
+                // Array or List<T> whose element type is a UnityEngine.Object subclass
+                Type elemType = GetUnityObjectCollectionElementType(field.FieldType);
+                if (elemType != null)
+                {
+                    var collection = field.GetValue(component) as System.Collections.IEnumerable;
+                    if (collection == null) { entry[field.Name] = JValue.CreateNull(); continue; }
+                    bool isEntityType = typeof(GameObject).IsAssignableFrom(elemType) || typeof(Component).IsAssignableFrom(elemType);
+                    var jArr = new JArray();
+                    foreach (var item in collection)
+                    {
+                        var refObj = item as UnityEngine.Object;
+                        jArr.Add(isEntityType
+                            ? SerializeEntityReference(refObj, type, field.Name)
+                            : SerializeAssetReference(refObj));
+                    }
+                    entry[field.Name] = jArr;
                     continue;
                 }
 
@@ -739,6 +745,35 @@ namespace UnityAIBridge.Editor
                     Debug.LogWarning($"[UnityAIBridge] Failed to serialize field {field.Name} on {type.Name}: {e.Message}");
                 }
             }
+        }
+
+        private static JToken SerializeEntityReference(UnityEngine.Object refObj, Type ownerType, string fieldName)
+        {
+            if (refObj == null) return JValue.CreateNull();
+            string assetPath = AssetDatabase.GetAssetPath(refObj);
+            if (!string.IsNullOrEmpty(assetPath))
+                return new JValue(assetPath);
+            var refGo = refObj is GameObject gObj ? gObj : ((Component)refObj).gameObject;
+            var refSync = refGo.GetComponent<EntitySync>();
+            if (refSync != null && !string.IsNullOrEmpty(refSync.uuid))
+                return new JObject { ["targetUUID"] = refSync.uuid };
+            Debug.LogWarning($"[UnityAIBridge] Field {fieldName} on {ownerType.Name} references a GameObject with no EntitySync — serialized as null");
+            return JValue.CreateNull();
+        }
+
+        private static Type GetUnityObjectCollectionElementType(Type fieldType)
+        {
+            if (fieldType.IsArray)
+            {
+                var elem = fieldType.GetElementType();
+                return typeof(UnityEngine.Object).IsAssignableFrom(elem) ? elem : null;
+            }
+            if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                var elem = fieldType.GetGenericArguments()[0];
+                return typeof(UnityEngine.Object).IsAssignableFrom(elem) ? elem : null;
+            }
+            return null;
         }
 
         // ─── Hot-reload (external file changes) ──────────────────────────────────
