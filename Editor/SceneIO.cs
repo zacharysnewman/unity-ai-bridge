@@ -739,7 +739,15 @@ namespace UnityAIBridge.Editor
                     }
 
                     object value = field.GetValue(component);
-                    entry[field.Name] = value != null ? JToken.FromObject(value, FieldSerializer) : JValue.CreateNull();
+                    if (value != null)
+                    {
+                        WarnIfUnhandledUnityType(field.FieldType, field.Name, type.Name);
+                        entry[field.Name] = JToken.FromObject(value, FieldSerializer);
+                    }
+                    else
+                    {
+                        entry[field.Name] = JValue.CreateNull();
+                    }
                 }
                 catch (Exception e)
                 {
@@ -761,6 +769,21 @@ namespace UnityAIBridge.Editor
                 return new JObject { ["targetUUID"] = refSync.uuid };
             Debug.LogWarning($"[UnityAIBridge] Field {fieldName} on {ownerType.Name} references a GameObject with no EntitySync — serialized as null");
             return JValue.CreateNull();
+        }
+
+        private static void WarnIfUnhandledUnityType(Type fieldType, string fieldName, string componentName)
+        {
+            Type check = fieldType.IsArray ? fieldType.GetElementType() :
+                         (fieldType.IsGenericType ? fieldType.GetGenericArguments()[0] : fieldType);
+            if (check == null) return;
+            string ns = check.Namespace ?? "";
+            if (!ns.StartsWith("UnityEngine", StringComparison.Ordinal) &&
+                !ns.StartsWith("UnityEditor", StringComparison.Ordinal)) return;
+            // Already handled by UnityMathConverter — no warning needed
+            if (new UnityMathConverter().CanConvert(check)) return;
+            string msg = $"[UnityAIBridge] Field {fieldName} on {componentName} has unhandled Unity type {check.Name} — will serialize as {{}}";
+            InitLog.Write($"           WARN: {msg}");
+            Debug.LogWarning(msg);
         }
 
         private static Type GetUnityObjectCollectionElementType(Type fieldType)
