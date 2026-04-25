@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.0...v1.4.1) (2026-04-25)
+
+
+### Bug Fixes
+
+* warn when a Unity type falls through to empty-object serialization ([e313be2](https://github.com/zacharysnewman/unity-ai-bridge/commit/e313be2c75e9888992dc0620f980882acb486e1c))
+
 # [1.4.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.3.3...v1.4.0) (2026-04-25)
 
 
