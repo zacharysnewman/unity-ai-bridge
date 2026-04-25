@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.2...v1.4.3) (2026-04-25)
+
+
+### Bug Fixes
+
+* skip unhandled Unity namespace types instead of writing empty objects ([53756e6](https://github.com/zacharysnewman/unity-ai-bridge/commit/53756e63b80d8a7a74935d5105880c3be7249f1f))
+
 ## [1.4.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.1...v1.4.2) (2026-04-25)
 
 
