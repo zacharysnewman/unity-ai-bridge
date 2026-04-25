@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.1...v1.4.2) (2026-04-25)
+
+
+### Bug Fixes
+
+* omit runtime Unity objects from serialization instead of writing null ([c5ff66d](https://github.com/zacharysnewman/unity-ai-bridge/commit/c5ff66d422ec1b9bb843eee5c2d60456a5913c79))
+
 ## [1.4.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.0...v1.4.1) (2026-04-25)
 
 
