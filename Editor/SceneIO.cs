@@ -754,16 +754,11 @@ namespace UnityAIBridge.Editor
                         continue;
                     }
 
+                    if (IsUnhandledUnityType(field.FieldType, field.Name, type.Name))
+                        continue;
+
                     object value = field.GetValue(component);
-                    if (value != null)
-                    {
-                        WarnIfUnhandledUnityType(field.FieldType, field.Name, type.Name);
-                        entry[field.Name] = JToken.FromObject(value, FieldSerializer);
-                    }
-                    else
-                    {
-                        entry[field.Name] = JValue.CreateNull();
-                    }
+                    entry[field.Name] = value != null ? JToken.FromObject(value, FieldSerializer) : JValue.CreateNull();
                 }
                 catch (Exception e)
                 {
@@ -787,19 +782,22 @@ namespace UnityAIBridge.Editor
             return JValue.CreateNull();
         }
 
-        private static void WarnIfUnhandledUnityType(Type fieldType, string fieldName, string componentName)
+        // Returns true if the field should be skipped — its type is in the UnityEngine/UnityEditor
+        // namespace but not handled by UnityMathConverter. Writing {} and re-applying it would
+        // overwrite engine-managed internal state with a broken default instance.
+        private static bool IsUnhandledUnityType(Type fieldType, string fieldName, string componentName)
         {
             Type check = fieldType.IsArray ? fieldType.GetElementType() :
                          (fieldType.IsGenericType ? fieldType.GetGenericArguments()[0] : fieldType);
-            if (check == null) return;
+            if (check == null) return false;
             string ns = check.Namespace ?? "";
             if (!ns.StartsWith("UnityEngine", StringComparison.Ordinal) &&
-                !ns.StartsWith("UnityEditor", StringComparison.Ordinal)) return;
-            // Already handled by UnityMathConverter — no warning needed
-            if (new UnityMathConverter().CanConvert(check)) return;
-            string msg = $"[UnityAIBridge] Field {fieldName} on {componentName} has unhandled Unity type {check.Name} — will serialize as {{}}";
-            InitLog.Write($"           WARN: {msg}");
+                !ns.StartsWith("UnityEditor", StringComparison.Ordinal)) return false;
+            if (new UnityMathConverter().CanConvert(check)) return false;
+            string msg = $"[UnityAIBridge] Skipping field {fieldName} on {componentName} — unhandled Unity type {check.Name} cannot safely round-trip";
+            InitLog.Write($"           SKIP: {msg}");
             Debug.LogWarning(msg);
+            return true;
         }
 
         private static Type GetUnityObjectCollectionElementType(Type fieldType)
