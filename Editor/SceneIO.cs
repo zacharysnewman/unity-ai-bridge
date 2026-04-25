@@ -713,9 +713,17 @@ namespace UnityAIBridge.Editor
                     }
 
                     // Single UnityEngine.Object (asset) reference → asset path
+                    // Runtime-created objects (no asset path) are omitted entirely so the
+                    // apply phase never nulls out engine-managed references like RenderTextures.
                     if (typeof(UnityEngine.Object).IsAssignableFrom(field.FieldType))
                     {
-                        entry[field.Name] = SerializeAssetReference(field.GetValue(component) as UnityEngine.Object);
+                        var assetObj = field.GetValue(component) as UnityEngine.Object;
+                        if (assetObj != null && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(assetObj)))
+                        {
+                            InitLog.Write($"           SKIP: {field.Name} is a runtime Unity object (no asset path)");
+                            continue;
+                        }
+                        entry[field.Name] = SerializeAssetReference(assetObj);
                         continue;
                     }
 
@@ -727,13 +735,21 @@ namespace UnityAIBridge.Editor
                         if (collection == null) { entry[field.Name] = JValue.CreateNull(); continue; }
                         bool isEntityType = typeof(GameObject).IsAssignableFrom(elemType) || typeof(Component).IsAssignableFrom(elemType);
                         var jArr = new JArray();
+                        bool anyRuntime = false;
                         foreach (var item in collection)
                         {
                             var refObj = item as UnityEngine.Object;
+                            if (!isEntityType && refObj != null && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(refObj)))
+                            {
+                                anyRuntime = true;
+                                continue;
+                            }
                             jArr.Add(isEntityType
                                 ? SerializeEntityReference(refObj, type, field.Name)
                                 : SerializeAssetReference(refObj));
                         }
+                        if (anyRuntime)
+                            InitLog.Write($"           SKIP: one or more runtime Unity objects omitted from {field.Name}");
                         entry[field.Name] = jArr;
                         continue;
                     }
