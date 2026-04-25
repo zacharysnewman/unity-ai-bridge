@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.2.0...v1.3.0) (2026-04-25)
+
+
+### Features
+
+* add per-component and per-field logging to init log ([d70c590](https://github.com/zacharysnewman/unity-ai-bridge/commit/d70c59030221987b96b8183cf3b081e7de980197))
+
 # [1.2.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.7...v1.2.0) (2026-04-25)
 
 
