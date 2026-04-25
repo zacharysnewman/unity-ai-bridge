@@ -640,12 +640,14 @@ namespace UnityAIBridge.Editor
                 // Skip internal package components
                 if (component is EntitySync) continue;
 
+                InitLog.Write($"      -> MonoBehaviour: {component.GetType().FullName}");
                 var entry = new JObject
                 {
                     ["type"] = component.GetType().FullName
                 };
 
                 SerializeComponentFields(component, entry);
+                InitLog.Write($"         done");
                 result.Add(entry);
             }
 
@@ -697,6 +699,7 @@ namespace UnityAIBridge.Editor
 
             foreach (var field in fields)
             {
+                InitLog.Write($"         field: {field.Name} ({field.FieldType.Name})");
                 if (typeof(GameObject).IsAssignableFrom(field.FieldType) ||
                     typeof(Component).IsAssignableFrom(field.FieldType))
                 {
