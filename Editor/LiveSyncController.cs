@@ -462,6 +462,18 @@ namespace UnityAIBridge.Editor
                 Undo.RegisterCreatedObjectUndo(go, "Create SceneDataManager");
             }
 
+            var scenePath = activeScene.path;
+            var sceneFileName = System.IO.Path.GetFileNameWithoutExtension(scenePath);
+            var sceneDataFolder = "Assets/SceneData/" + System.IO.Path.GetDirectoryName(
+                scenePath.Substring("Assets/".Length)).Replace('\\', '/');
+            sceneDataFolder = sceneDataFolder.TrimEnd('/') + "/" + sceneFileName;
+            var backupDir = System.IO.Path.Combine(
+                System.IO.Path.GetFullPath(sceneDataFolder), "backup");
+            System.IO.Directory.CreateDirectory(backupDir);
+            var timestamp = System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            var backupFile = System.IO.Path.Combine(backupDir, sceneFileName + "_" + timestamp + ".unity");
+            System.IO.File.Copy(System.IO.Path.GetFullPath(scenePath), backupFile);
+
             SceneIO.InitializeScene(manager);
         }
 
