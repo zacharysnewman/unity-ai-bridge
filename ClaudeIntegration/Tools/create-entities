@@ -17,6 +17,7 @@ Specs provided via --stdin are read as a JSON array or one JSON object per line.
 
 Examples:
   create-entities Level_A '{"name":"Cube1","prefabPath":"primitive/Cube"}'
+  create-entities Level_A '[{"name":"A","prefabPath":"primitive/Sphere"},{"name":"B","prefabPath":"primitive/Cube"}]'
   create-entities Level_A '{"name":"Enemy","prefabPath":"Assets/Prefabs/Enemy.prefab","transform":{"pos":[0,1,0],"rot":[0,0,0],"scl":[1,1,1]}}'
   echo '[{"name":"A","prefabPath":"primitive/Sphere"},{"name":"B","prefabPath":"primitive/Cube"}]' \\
     | create-entities Level_A --stdin
@@ -245,7 +246,8 @@ def main():
             print("Usage: create-entities <scene> '<spec-json>'", file=sys.stderr)
             sys.exit(1)
         try:
-            specs = [json.loads(args[0])]
+            parsed = json.loads(args[0])
+            specs = parsed if isinstance(parsed, list) else [parsed]
         except json.JSONDecodeError as e:
             print(f"Error: invalid JSON spec: {e}", file=sys.stderr)
             sys.exit(1)

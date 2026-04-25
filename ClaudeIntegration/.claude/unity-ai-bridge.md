@@ -39,6 +39,89 @@ Nine CLI tools are installed in `Tools/` at the project root. Prefer these over 
 | `Tools/create-entities <scene> '<spec-json>'` | Create new entities and return their UUIDs |
 | `Tools/delete-entities <scene> <uuid>...` | Delete entities by UUID |
 
+### Reach for these tools first
+
+Before using Read, Edit, Write, or raw Bash file operations on scene data, check this table:
+
+| What you want to do | Tool to use |
+|---|---|
+| Find entities by name, component, position, or any field | `query-scene` |
+| Update a field on one or more existing entities | `patch-entities` |
+| Create one or more new entities | `create-entities` |
+| Delete entities | `delete-entities` |
+| See what the user has selected in the editor | `get-selected-entities` |
+| Highlight/select entities in the editor | `select-entities` |
+| Know what's currently visible in the scene view | `get-visible-entities` |
+| Read Unity console output (errors, warnings, logs) | `query-logs` |
+
+Use **Read** on entity JSON files only when you need to inspect the full content of a specific known entity. For everything else, use the tools above.
+
+Never open or read `.unity` scene files — the raw Unity YAML is not the source of truth here. All scene state lives in the entity JSON files.
+
+Never use **Write** or **Edit** to update existing entity files — `patch-entities` handles updates with history tracking and undo support.
+
+### Tool Composition
+
+Tools are designed to pipe together. UUID-producing tools print one UUID per line; UUID-consuming tools accept `--stdin` to read that same format. Any producer can be piped directly to any consumer.
+
+**UUID producers** (output one UUID per line):
+- `query-scene` — entities matching a filter
+- `get-visible-entities` — entities in the scene view frustum
+- `get-selected-entities` — entities currently selected in the editor
+- `create-entities` — UUIDs of newly created entities
+
+**UUID consumers** (accept `--stdin`):
+- `patch-entities --stdin <scene> "<patch>"` — update a field on each
+- `select-entities --stdin [scene]` — select them in the editor
+- `delete-entities <scene> --stdin` — delete each
+
+This means you can chain any producer into any consumer:
+
+```bash
+# find → patch
+Tools/query-scene Level_A "prefab contains Wheel" | Tools/patch-entities --stdin Level_A "transform.rot.z = 0"
+
+# find → select (show the user what matched)
+Tools/query-scene Level_A "component == Enemy" | Tools/select-entities --stdin
+
+# visible → patch
+Tools/get-visible-entities Level_A | Tools/patch-entities --stdin Level_A "transform.pos.y += 1"
+
+# visible → delete
+Tools/get-visible-entities Level_A | Tools/delete-entities Level_A --stdin
+
+# create → select (immediately highlight new entities)
+Tools/create-entities Level_A '[{"name":"SpawnA","prefabPath":"primitive/Sphere"}]' | Tools/select-entities --stdin
+
+# selected → patch (operate on whatever the user has highlighted)
+Tools/get-selected-entities Level_A | Tools/patch-entities --stdin Level_A "activeSelf = false"
+```
+
+### Common Workflows
+
+**Find and inspect a specific entity:**
+```bash
+Tools/query-scene Level_A "name == MyObject"   # get UUID
+# then: Read Assets/SceneData/Level_A/Entities/<uuid>.json
+```
+
+**Update a field on all matching entities:**
+```bash
+Tools/patch-entities Level_A "component == Enemy" "transform.pos.y = 0"
+```
+
+**Create multiple entities at once (pass a JSON array):**
+```bash
+Tools/create-entities Level_A '[{"name":"SpawnA","prefabPath":"primitive/Sphere"},{"name":"SpawnB","prefabPath":"primitive/Sphere"}]'
+```
+
+**Set a JSON object or array field (e.g. an entity reference or a vector):**
+```bash
+Tools/patch-entities Level_A "name == Turret" 'target = {"targetUUID":"8a7b6c5d-..."}'
+```
+
+---
+
 ### query-scene
 
 ```bash
@@ -418,3 +501,5 @@ See `Schemas/entity.schema.json` for the full entity schema, including transform
 - Do not write entity files during Play Mode — the write pipeline is suspended
 - Do not use direct `GameObject` or `MonoBehaviour` references in serialized fields for runtime cross-scene lookups — use `EntityReference` for those cases; direct fields work for same-scene editor-time wiring
 - Do not assume component order is stable across sessions for same-type multi-components
+- **Do not use Write or Edit to update existing entity files** — use `patch-entities` for any field update on existing entities. Direct file writes bypass history tracking and are error-prone; `patch-entities` composes with `query-scene` for bulk changes.
+- **Do not read `.unity` scene files** — the raw Unity YAML is not the source of truth here. All scene state is in the entity JSON files under `Assets/SceneData/`. Read those instead.

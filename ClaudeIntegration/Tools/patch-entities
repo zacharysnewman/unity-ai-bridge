@@ -194,6 +194,9 @@ def parse_value(raw):
     if (raw.startswith('"') and raw.endswith('"')) or \
        (raw.startswith("'") and raw.endswith("'")):
         return raw[1:-1]
+    if raw.startswith(("{", "[")):
+        try: return json.loads(raw)
+        except json.JSONDecodeError: pass
     try: return int(raw)
     except ValueError: pass
     try: return float(raw)
