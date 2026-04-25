@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.3...v1.4.4) (2026-04-25)
+
+
+### Bug Fixes
+
+* patch-entities object/array values, create-entities JSON array input, improve CLAUDE.md tooling guidance ([b988d39](https://github.com/zacharysnewman/unity-ai-bridge/commit/b988d39efed372dd36db487ef34797037beaa481))
+
 ## [1.4.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.2...v1.4.3) (2026-04-25)
 
 
