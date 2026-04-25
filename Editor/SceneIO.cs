@@ -1243,35 +1243,223 @@ namespace UnityAIBridge.Editor
     internal class UnityMathConverter : JsonConverter
     {
         public override bool CanConvert(Type t) =>
-            t == typeof(Vector2) || t == typeof(Vector3) || t == typeof(Vector4) ||
-            t == typeof(Quaternion) || t == typeof(Color) || t == typeof(Color32);
+            t == typeof(Vector2)    || t == typeof(Vector3)    || t == typeof(Vector4)  ||
+            t == typeof(Vector2Int) || t == typeof(Vector3Int) ||
+            t == typeof(Quaternion) ||
+            t == typeof(Color)      || t == typeof(Color32)    ||
+            t == typeof(Rect)       || t == typeof(RectInt)    ||
+            t == typeof(Bounds)     || t == typeof(BoundsInt)  ||
+            t == typeof(Matrix4x4)  || t == typeof(LayerMask)  ||
+            t == typeof(AnimationCurve) || t == typeof(Gradient);
 
         public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
         {
-            writer.WriteStartArray();
             switch (value)
             {
-                case Vector2 v:  writer.WriteValue(v.x); writer.WriteValue(v.y); break;
-                case Vector3 v:  writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z); break;
-                case Vector4 v:  writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z); writer.WriteValue(v.w); break;
-                case Quaternion q: writer.WriteValue(q.x); writer.WriteValue(q.y); writer.WriteValue(q.z); writer.WriteValue(q.w); break;
-                case Color c:    writer.WriteValue(c.r); writer.WriteValue(c.g); writer.WriteValue(c.b); writer.WriteValue(c.a); break;
-                case Color32 c:  writer.WriteValue(c.r); writer.WriteValue(c.g); writer.WriteValue(c.b); writer.WriteValue(c.a); break;
+                case Vector2 v:
+                    writer.WriteStartArray();
+                    writer.WriteValue(v.x); writer.WriteValue(v.y);
+                    writer.WriteEndArray(); break;
+                case Vector3 v:
+                    writer.WriteStartArray();
+                    writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z);
+                    writer.WriteEndArray(); break;
+                case Vector4 v:
+                    writer.WriteStartArray();
+                    writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z); writer.WriteValue(v.w);
+                    writer.WriteEndArray(); break;
+                case Vector2Int v:
+                    writer.WriteStartArray();
+                    writer.WriteValue(v.x); writer.WriteValue(v.y);
+                    writer.WriteEndArray(); break;
+                case Vector3Int v:
+                    writer.WriteStartArray();
+                    writer.WriteValue(v.x); writer.WriteValue(v.y); writer.WriteValue(v.z);
+                    writer.WriteEndArray(); break;
+                case Quaternion q:
+                    writer.WriteStartArray();
+                    writer.WriteValue(q.x); writer.WriteValue(q.y); writer.WriteValue(q.z); writer.WriteValue(q.w);
+                    writer.WriteEndArray(); break;
+                case Color c:
+                    writer.WriteStartArray();
+                    writer.WriteValue(c.r); writer.WriteValue(c.g); writer.WriteValue(c.b); writer.WriteValue(c.a);
+                    writer.WriteEndArray(); break;
+                case Color32 c:
+                    writer.WriteStartArray();
+                    writer.WriteValue(c.r); writer.WriteValue(c.g); writer.WriteValue(c.b); writer.WriteValue(c.a);
+                    writer.WriteEndArray(); break;
+                case Rect r:
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("x");      writer.WriteValue(r.x);
+                    writer.WritePropertyName("y");      writer.WriteValue(r.y);
+                    writer.WritePropertyName("width");  writer.WriteValue(r.width);
+                    writer.WritePropertyName("height"); writer.WriteValue(r.height);
+                    writer.WriteEndObject(); break;
+                case RectInt r:
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("x");      writer.WriteValue(r.x);
+                    writer.WritePropertyName("y");      writer.WriteValue(r.y);
+                    writer.WritePropertyName("width");  writer.WriteValue(r.width);
+                    writer.WritePropertyName("height"); writer.WriteValue(r.height);
+                    writer.WriteEndObject(); break;
+                case Bounds b:
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("center"); serializer.Serialize(writer, b.center);
+                    writer.WritePropertyName("size");   serializer.Serialize(writer, b.size);
+                    writer.WriteEndObject(); break;
+                case BoundsInt b:
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("position"); serializer.Serialize(writer, b.position);
+                    writer.WritePropertyName("size");     serializer.Serialize(writer, b.size);
+                    writer.WriteEndObject(); break;
+                case Matrix4x4 m:
+                    // Row-major flat array: [m00,m01,...,m33]
+                    writer.WriteStartArray();
+                    for (int row = 0; row < 4; row++)
+                        for (int col = 0; col < 4; col++)
+                            writer.WriteValue(m[row, col]);
+                    writer.WriteEndArray(); break;
+                case LayerMask lm:
+                    writer.WriteValue(lm.value); break;
+                case AnimationCurve ac:
+                    writer.WriteStartArray();
+                    if (ac != null)
+                        foreach (var key in ac.keys)
+                        {
+                            writer.WriteStartObject();
+                            writer.WritePropertyName("time");       writer.WriteValue(key.time);
+                            writer.WritePropertyName("value");      writer.WriteValue(key.value);
+                            writer.WritePropertyName("inTangent");  writer.WriteValue(key.inTangent);
+                            writer.WritePropertyName("outTangent"); writer.WriteValue(key.outTangent);
+                            writer.WritePropertyName("inWeight");   writer.WriteValue(key.inWeight);
+                            writer.WritePropertyName("outWeight");  writer.WriteValue(key.outWeight);
+                            writer.WritePropertyName("weightedMode"); writer.WriteValue((int)key.weightedMode);
+                            writer.WriteEndObject();
+                        }
+                    writer.WriteEndArray(); break;
+                case Gradient g:
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("colorKeys");
+                    writer.WriteStartArray();
+                    if (g != null)
+                        foreach (var ck in g.colorKeys)
+                        {
+                            writer.WriteStartObject();
+                            writer.WritePropertyName("color"); serializer.Serialize(writer, ck.color);
+                            writer.WritePropertyName("time");  writer.WriteValue(ck.time);
+                            writer.WriteEndObject();
+                        }
+                    writer.WriteEndArray();
+                    writer.WritePropertyName("alphaKeys");
+                    writer.WriteStartArray();
+                    if (g != null)
+                        foreach (var ak in g.alphaKeys)
+                        {
+                            writer.WriteStartObject();
+                            writer.WritePropertyName("alpha"); writer.WriteValue(ak.alpha);
+                            writer.WritePropertyName("time");  writer.WriteValue(ak.time);
+                            writer.WriteEndObject();
+                        }
+                    writer.WriteEndArray();
+                    if (g != null)
+                    {
+                        writer.WritePropertyName("mode"); writer.WriteValue((int)g.mode);
+                    }
+                    writer.WriteEndObject(); break;
             }
-            writer.WriteEndArray();
         }
 
         public override object ReadJson(JsonReader reader, Type t, object existing, JsonSerializer serializer)
         {
-            var arr = JArray.Load(reader);
-            float F(int i) => arr.Count > i ? arr[i].Value<float>() : 0f;
-            byte B(int i) => arr.Count > i ? arr[i].Value<byte>() : (byte)0;
-            if (t == typeof(Vector2))   return new Vector2(F(0), F(1));
-            if (t == typeof(Vector3))   return new Vector3(F(0), F(1), F(2));
-            if (t == typeof(Vector4))   return new Vector4(F(0), F(1), F(2), F(3));
+            if (t == typeof(LayerMask))
+            {
+                var tok = JToken.Load(reader);
+                return (LayerMask)tok.Value<int>();
+            }
+            if (t == typeof(AnimationCurve))
+            {
+                var arr = JArray.Load(reader);
+                var keys = new Keyframe[arr.Count];
+                for (int i = 0; i < arr.Count; i++)
+                {
+                    var o = (JObject)arr[i];
+                    float fv(string k) => o[k]?.Value<float>() ?? 0f;
+                    int   iv(string k) => o[k]?.Value<int>()   ?? 0;
+                    keys[i] = new Keyframe(fv("time"), fv("value"), fv("inTangent"), fv("outTangent"), fv("inWeight"), fv("outWeight"))
+                    {
+                        weightedMode = (WeightedMode)iv("weightedMode")
+                    };
+                }
+                return new AnimationCurve(keys);
+            }
+            if (t == typeof(Gradient))
+            {
+                var o = JObject.Load(reader);
+                var ckArr = (JArray)o["colorKeys"];
+                var akArr = (JArray)o["alphaKeys"];
+                var ck = ckArr != null ? new GradientColorKey[ckArr.Count] : new GradientColorKey[0];
+                var ak = akArr != null ? new GradientAlphaKey[akArr.Count] : new GradientAlphaKey[0];
+                for (int i = 0; ckArr != null && i < ckArr.Count; i++)
+                {
+                    var co = (JObject)ckArr[i];
+                    ck[i] = new GradientColorKey(
+                        co["color"] != null ? (Color)co["color"].ToObject(typeof(Color), serializer) : Color.white,
+                        co["time"]?.Value<float>() ?? 0f);
+                }
+                for (int i = 0; akArr != null && i < akArr.Count; i++)
+                {
+                    var ao = (JObject)akArr[i];
+                    ak[i] = new GradientAlphaKey(ao["alpha"]?.Value<float>() ?? 1f, ao["time"]?.Value<float>() ?? 0f);
+                }
+                var g = new Gradient();
+                g.SetKeys(ck, ak);
+                if (o["mode"] != null) g.mode = (GradientMode)o["mode"].Value<int>();
+                return g;
+            }
+
+            // All remaining types use array form
+            if (t == typeof(Rect) || t == typeof(RectInt) || t == typeof(Bounds) || t == typeof(BoundsInt))
+            {
+                var o = JObject.Load(reader);
+                float fv(string k) => o[k]?.Value<float>() ?? 0f;
+                int   iv(string k) => o[k]?.Value<int>()   ?? 0;
+                if (t == typeof(Rect))      return new Rect(fv("x"), fv("y"), fv("width"), fv("height"));
+                if (t == typeof(RectInt))   return new RectInt(iv("x"), iv("y"), iv("width"), iv("height"));
+                if (t == typeof(Bounds))
+                {
+                    var center = o["center"] != null ? (Vector3)o["center"].ToObject(typeof(Vector3), serializer) : Vector3.zero;
+                    var size   = o["size"]   != null ? (Vector3)o["size"].ToObject(typeof(Vector3),   serializer) : Vector3.zero;
+                    return new Bounds(center, size);
+                }
+                if (t == typeof(BoundsInt))
+                {
+                    var pos  = o["position"] != null ? (Vector3Int)o["position"].ToObject(typeof(Vector3Int), serializer) : Vector3Int.zero;
+                    var size = o["size"]     != null ? (Vector3Int)o["size"].ToObject(typeof(Vector3Int),     serializer) : Vector3Int.zero;
+                    return new BoundsInt(pos, size);
+                }
+            }
+
+            var a = JArray.Load(reader);
+            float F(int i) => a.Count > i ? a[i].Value<float>() : 0f;
+            int   I(int i) => a.Count > i ? a[i].Value<int>()   : 0;
+            byte  B(int i) => a.Count > i ? a[i].Value<byte>()  : (byte)0;
+
+            if (t == typeof(Vector2))    return new Vector2(F(0), F(1));
+            if (t == typeof(Vector3))    return new Vector3(F(0), F(1), F(2));
+            if (t == typeof(Vector4))    return new Vector4(F(0), F(1), F(2), F(3));
+            if (t == typeof(Vector2Int)) return new Vector2Int(I(0), I(1));
+            if (t == typeof(Vector3Int)) return new Vector3Int(I(0), I(1), I(2));
             if (t == typeof(Quaternion)) return new Quaternion(F(0), F(1), F(2), F(3));
-            if (t == typeof(Color))     return new Color(F(0), F(1), F(2), F(3));
-            if (t == typeof(Color32))   return new Color32(B(0), B(1), B(2), B(3));
+            if (t == typeof(Color))      return new Color(F(0), F(1), F(2), F(3));
+            if (t == typeof(Color32))    return new Color32(B(0), B(1), B(2), B(3));
+            if (t == typeof(Matrix4x4))
+            {
+                var m = new Matrix4x4();
+                for (int row = 0; row < 4; row++)
+                    for (int col = 0; col < 4; col++)
+                        m[row, col] = F(row * 4 + col);
+                return m;
+            }
             return null;
         }
     }
