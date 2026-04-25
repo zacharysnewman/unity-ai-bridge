@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -26,6 +27,7 @@ namespace UnityAIBridge.Editor
             Converters = { new UnityMathConverter() },
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
             MaxDepth = 8,
+            ContractResolver = new SafeUnityContractResolver(),
         });
 
         // ─── Primitive path prefix ────────────────────────────────────────────────
@@ -1217,6 +1219,26 @@ namespace UnityAIBridge.Editor
     }
 
     // ─── Unity math type converter ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Skips properties whose declaring type lives in the UnityEngine namespace.
+    /// This prevents JToken.FromObject from calling computed properties like
+    /// Matrix4x4.get_rotation() that fire ValidTRS() native assertions on zero-scale objects.
+    /// Only serializable fields (not properties) from user-defined types reach this path anyway;
+    /// Unity engine types are handled explicitly before JToken.FromObject is called.
+    /// </summary>
+    internal class SafeUnityContractResolver : DefaultContractResolver
+    {
+        protected override IList<JsonProperty> CreateProperties(Type type, MemberSerialization memberSerialization)
+        {
+            var props = base.CreateProperties(type, memberSerialization);
+            if (type.Namespace != null &&
+                (type.Namespace.StartsWith("UnityEngine", StringComparison.Ordinal) ||
+                 type.Namespace.StartsWith("UnityEditor", StringComparison.Ordinal)))
+                return new List<JsonProperty>();
+            return props;
+        }
+    }
 
     internal class UnityMathConverter : JsonConverter
     {
