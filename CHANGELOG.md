@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.5...v1.5.0) (2026-04-25)
+
+
+### Features
+
+* back up .unity scene file on Initialize Scene ([06f529d](https://github.com/zacharysnewman/unity-ai-bridge/commit/06f529dbe069fa15fddf8ec2c37b7e1b586bef31))
+
 ## [1.4.5](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.4...v1.4.5) (2026-04-25)
 
 
