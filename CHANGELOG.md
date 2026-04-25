@@ -1,3 +1,10 @@
+## [1.4.5](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.4...v1.4.5) (2026-04-25)
+
+
+### Bug Fixes
+
+* serialize sub-asset ObjectReferences in builtInComponents as {path, name} ([363c071](https://github.com/zacharysnewman/unity-ai-bridge/commit/363c071d4f49781d142f0bcb4f8188640f0d64dd))
+
 ## [1.4.4](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.3...v1.4.4) (2026-04-25)
 
 
