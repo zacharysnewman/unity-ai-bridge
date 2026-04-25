@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.3.1...v1.3.2) (2026-04-25)
+
+
+### Bug Fixes
+
+* forward Unity console errors to init log and wrap all field paths ([9bdba54](https://github.com/zacharysnewman/unity-ai-bridge/commit/9bdba5446ee770cda995ee36e0e0e87e189e8da9))
+
 ## [1.3.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.3.0...v1.3.1) (2026-04-25)
 
 
