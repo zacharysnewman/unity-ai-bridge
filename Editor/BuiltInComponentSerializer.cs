@@ -122,6 +122,8 @@ namespace UnityAIBridge.Editor
                     // Skip built-in Unity assets that aren't loadable via AssetDatabase
                     if (string.IsNullOrEmpty(path) || path.StartsWith("Resources/", StringComparison.Ordinal))
                         return null;
+                    if (AssetDatabase.IsSubAsset(asset))
+                        return new JObject { ["path"] = path, ["name"] = asset.name };
                     return new JValue(path);
                 }
                 case SerializedPropertyType.AnimationCurve:
@@ -292,14 +294,26 @@ namespace UnityAIBridge.Editor
                     break;
                 case SerializedPropertyType.ObjectReference:
                 {
-                    string assetPath = token.Value<string>();
-                    if (!string.IsNullOrEmpty(assetPath))
+                    UnityEngine.Object asset = null;
+                    if (token is JObject subObj)
                     {
-                        var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
-                        if (asset != null)
-                            prop.objectReferenceValue = asset;
-                        // Silently skip missing assets — built-in defaults come from the prefab
+                        string p = subObj["path"]?.Value<string>();
+                        string n = subObj["name"]?.Value<string>();
+                        if (!string.IsNullOrEmpty(p) && !string.IsNullOrEmpty(n))
+                            foreach (var a in AssetDatabase.LoadAllAssetsAtPath(p))
+                                if (a != null && a.name == n) { asset = a; break; }
+                        else if (!string.IsNullOrEmpty(p))
+                            asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(p);
                     }
+                    else if (token.Type == JTokenType.String)
+                    {
+                        string assetPath = token.Value<string>();
+                        if (!string.IsNullOrEmpty(assetPath))
+                            asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
+                    }
+                    if (asset != null)
+                        prop.objectReferenceValue = asset;
+                    // Silently skip missing assets — built-in defaults come from the prefab
                     break;
                 }
                 case SerializedPropertyType.AnimationCurve:
