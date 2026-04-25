@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.3.3...v1.4.0) (2026-04-25)
+
+
+### Features
+
+* expand UnityMathConverter to cover all common Unity value types ([215773b](https://github.com/zacharysnewman/unity-ai-bridge/commit/215773b894d81907b0cb0da91c34d2ee9a3d5bee))
+
 ## [1.3.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.3.2...v1.3.3) (2026-04-25)
 
 
