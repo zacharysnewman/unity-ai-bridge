@@ -561,6 +561,7 @@ namespace UnityAIBridge.Editor
                 ? go.transform.parent.GetComponent<EntitySync>()
                 : null;
 
+            InitLog.Write($"    -> GetPrefabPath");
             var root = new JObject
             {
                 ["uuid"] = uuid,
@@ -585,13 +586,16 @@ namespace UnityAIBridge.Editor
                 ["scl"] = new JArray(t.localScale.x, t.localScale.y, t.localScale.z),
             };
 
+            InitLog.Write($"    -> SerializeBuiltInComponents");
             var builtInComponents = BuiltInComponentSerializer.SerializeAll(go);
             if (builtInComponents.Count > 0)
                 root["builtInComponents"] = builtInComponents;
 
+            InitLog.Write($"    -> SerializeCustomData");
             var customData = SerializeCustomData(go);
             if (customData.Count > 0)
                 root["customData"] = customData;
+            InitLog.Write($"    -> WriteFile");
 
             return root.ToString(Formatting.Indented);
         }
@@ -975,6 +979,7 @@ namespace UnityAIBridge.Editor
                 // AssetDatabase.ImportAsset is suppressed for the whole pass — one Refresh at the end.
                 int writtenCount = 0;
                 int errorCount = 0;
+                InitLog.Begin(manager.sceneDataPath);
                 for (int i = 0; i < allObjects.Count; i++)
                 {
                     var go = allObjects[i];
@@ -987,14 +992,18 @@ namespace UnityAIBridge.Editor
                     if (manager.GetByUUID(sync.uuid) == null)
                         manager.Register(sync.uuid, go);
 
+                    InitLog.Write($"  [{i + 1}/{total}] Writing: {go.name} ({sync.uuid})");
+
                     try
                     {
                         WriteEntity(go, entitiesDir);
                         writtenCount++;
+                        InitLog.Write($"    OK");
                     }
                     catch (Exception e)
                     {
                         errorCount++;
+                        InitLog.Write($"    ERROR: {e.Message}");
                         Debug.LogError($"[UnityAIBridge] Migration: failed to write '{go.name}' (uuid={sync.uuid}): {e.Message}\n{e.StackTrace}");
                     }
                     yield return null;
@@ -1009,6 +1018,7 @@ namespace UnityAIBridge.Editor
             }
             finally
             {
+                InitLog.End();
                 LiveSyncController.SuppressWriteEvents = false;
                 SuppressAssetImport = false;
                 EditorUtility.ClearProgressBar();
@@ -1207,6 +1217,34 @@ namespace UnityAIBridge.Editor
     }
 
     // ─── Validation result ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Writes a crash-safe init log to disk. Each Write() call flushes immediately so
+    /// the file is complete up to the last line even if Unity crashes mid-operation.
+    /// </summary>
+    public static class InitLog
+    {
+        private static string _path;
+        public static bool IsActive => _path != null;
+
+        public static void Begin(string sceneDataPath)
+        {
+            _path = Path.Combine(sceneDataPath, "init-log.txt");
+            File.WriteAllText(_path, $"[InitLog] Started {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n");
+        }
+
+        public static void Write(string message)
+        {
+            if (_path == null) return;
+            File.AppendAllText(_path, message + "\n");
+        }
+
+        public static void End()
+        {
+            Write($"[InitLog] Finished {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            _path = null;
+        }
+    }
 
     public class ValidationResult
     {

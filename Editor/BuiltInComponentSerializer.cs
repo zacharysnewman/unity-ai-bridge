@@ -28,9 +28,11 @@ namespace UnityAIBridge.Editor
             foreach (var comp in go.GetComponents<Component>())
             {
                 if (!ShouldInclude(comp)) continue;
+                InitLog.Write($"      -> BuiltIn: {comp.GetType().Name}");
                 var obj = Serialize(comp);
                 if (obj != null)
                     result.Add(obj);
+                InitLog.Write($"         done");
             }
             return result;
         }
