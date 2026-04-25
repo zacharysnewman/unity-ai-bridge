@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.7...v1.2.0) (2026-04-25)
+
+
+### Features
+
+* add crash-safe init log for diagnosing migration hangs ([4d2e2e1](https://github.com/zacharysnewman/unity-ai-bridge/commit/4d2e2e112de8952aa9437a47ddd77a81a5787200))
+
 ## [1.1.7](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.1.6...v1.1.7) (2026-04-24)
 
 
