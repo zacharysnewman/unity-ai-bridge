@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.3.0...v1.3.1) (2026-04-25)
+
+
+### Bug Fixes
+
+* handle arrays and lists of UnityEngine.Object in field serialization ([33db873](https://github.com/zacharysnewman/unity-ai-bridge/commit/33db8731797db590eeaa6b1692babdd1fa2d2ab8))
+
 # [1.3.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.2.0...v1.3.0) (2026-04-25)
 
 
