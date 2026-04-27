@@ -1,3 +1,10 @@
+## [1.5.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.1...v1.5.2) (2026-04-27)
+
+
+### Bug Fixes
+
+* skip scene-object ref arrays in serialization; guard arraySize on apply ([c8a2ab8](https://github.com/zacharysnewman/unity-ai-bridge/commit/c8a2ab867f4767639f9332e88c1bb0a2bf6278fb))
+
 ## [1.5.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.0...v1.5.1) (2026-04-27)
 
 
