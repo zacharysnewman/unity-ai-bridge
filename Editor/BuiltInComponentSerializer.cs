@@ -117,9 +117,13 @@ namespace UnityAIBridge.Editor
                 case SerializedPropertyType.ObjectReference:
                 {
                     var asset = prop.objectReferenceValue;
-                    if (asset == null) return null;
+                    // Null slot is a valid serializable state (e.g. unassigned material).
+                    // Return JValue.CreateNull() so callers can distinguish it from a
+                    // scene-object reference (non-null but no asset path) which returns null.
+                    if (asset == null) return JValue.CreateNull();
                     string path = AssetDatabase.GetAssetPath(asset);
-                    // Skip built-in Unity assets that aren't loadable via AssetDatabase
+                    // Scene-object and built-in refs have no asset path — return null
+                    // (not JValue.CreateNull) so array serialization can detect them.
                     if (string.IsNullOrEmpty(path) || path.StartsWith("Resources/", StringComparison.Ordinal))
                         return null;
                     if (AssetDatabase.IsSubAsset(asset))
@@ -184,12 +188,20 @@ namespace UnityAIBridge.Editor
                 if (prop.arraySize > 256)
                     Debug.LogWarning($"[UnityAIBridge] Large array on '{prop.name}' ({prop.arraySize} elements) — serializing all; consider whether this data should live in the entity JSON");
                 var arr = new JArray();
+                bool hasSerializableElement = false;
                 for (int i = 0; i < prop.arraySize; i++)
                 {
                     var elem = prop.GetArrayElementAtIndex(i);
-                    arr.Add(SerializeProp(elem) ?? JValue.CreateNull());
+                    var token = SerializeProp(elem);
+                    // token == null means a scene-object ref (non-null, no asset path).
+                    // token == JValue.CreateNull() means a null/unassigned asset slot — serializable.
+                    if (token != null) hasSerializableElement = true;
+                    arr.Add(token ?? JValue.CreateNull());
                 }
-                return arr;
+                // Don't write arrays composed entirely of scene-object references — they
+                // can't round-trip and writing [null,null,...] would let ApplyGeneric mark
+                // the array dirty and potentially clear bone/transform slots on apply.
+                return hasSerializableElement || prop.arraySize == 0 ? arr : null;
             }
 
             // Struct — iterate immediate children
@@ -424,7 +436,11 @@ namespace UnityAIBridge.Editor
         {
             if (prop.isArray && token is JArray arr)
             {
-                prop.arraySize = arr.Count;
+                // Guard: only set arraySize when it actually changes. Setting it to the
+                // same value marks the property dirty, which can cause Unity to clear
+                // scene-object slots (e.g. m_Bones) on ApplyModifiedPropertiesWithoutUndo.
+                if (prop.arraySize != arr.Count)
+                    prop.arraySize = arr.Count;
                 for (int i = 0; i < arr.Count; i++)
                     ApplyProp(prop.GetArrayElementAtIndex(i), arr[i]);
             }
