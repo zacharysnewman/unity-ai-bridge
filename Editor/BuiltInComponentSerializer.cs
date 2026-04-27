@@ -60,6 +60,39 @@ namespace UnityAIBridge.Editor
             return obj;
         }
 
+        // ─── Scene-object reference invariant ────────────────────────────────────
+        //
+        // Built-in component fields can hold two distinct kinds of "nothing":
+        //
+        //   A. Null asset slot   — objectReferenceValue == null (e.g. no material assigned).
+        //      SerializeProp returns JValue.CreateNull(). This IS serialized to JSON so the
+        //      slot index is preserved (important for multi-material arrays). On apply,
+        //      ApplyProp sees a null JToken and returns early — the slot is untouched.
+        //
+        //   B. Scene-object ref  — objectReferenceValue != null, AssetDatabase.GetAssetPath == "".
+        //      Examples: SkinnedMeshRenderer.m_Bones (Transform[]), m_RootBone (Transform).
+        //      SerializeProp returns null (method return, not JValue). Scene objects have no
+        //      stable asset path and cannot round-trip through JSON.
+        //
+        // SerializeGeneric arrays treat these differently:
+        //   - Any element returning JValue.CreateNull() (case A) → hasSerializableElement = true
+        //     → array IS written to JSON (slot structure must be preserved).
+        //   - All elements returning null (case B) → hasSerializableElement = false
+        //     → array is OMITTED from JSON entirely. If it were written as [null,null,...],
+        //     ApplyGeneric would mark the array dirty via arraySize assignment, and
+        //     ApplyModifiedPropertiesWithoutUndo would clear every bone/transform slot.
+        //
+        // ApplyGeneric guards arraySize: only set when the count changes. This protects
+        // against old entity files written before this invariant was established — they
+        // may contain [null,null,...] bones arrays, and setting arraySize=N (even same N)
+        // marks the property dirty and risks clearing slots on apply.
+        //
+        // DO NOT remove the hasSerializableElement check or the arraySize guard without
+        // understanding this invariant. The symptom of regression is SkinnedMeshRenderer
+        // bones and MeshFilter/SkinnedMeshRenderer meshes being silently cleared on every
+        // Initialize Scene or hot-reload.
+        // ─────────────────────────────────────────────────────────────────────────
+
         private static JToken SerializeProp(SerializedProperty prop)
         {
             switch (prop.propertyType)
