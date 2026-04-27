@@ -1,3 +1,10 @@
+## [1.5.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.2...v1.5.3) (2026-04-27)
+
+
+### Bug Fixes
+
+* fall back to sub-asset search when plain path loads wrong type ([8c9e190](https://github.com/zacharysnewman/unity-ai-bridge/commit/8c9e1900c99539b8a0ddf34006bc7c6457c9a60c))
+
 ## [1.5.2](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.1...v1.5.2) (2026-04-27)
 
 
