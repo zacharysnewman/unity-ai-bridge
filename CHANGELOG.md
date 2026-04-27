@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.0...v1.5.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* filter sub-asset lookup by expected property type to prevent name collisions ([daebb24](https://github.com/zacharysnewman/unity-ai-bridge/commit/daebb2469448f544e59010c61a9be90d7ec0694a))
+
 # [1.5.0](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.4.5...v1.5.0) (2026-04-25)
 
 
