@@ -362,7 +362,25 @@ namespace UnityAIBridge.Editor
                     {
                         string assetPath = token.Value<string>();
                         if (!string.IsNullOrEmpty(assetPath))
+                        {
                             asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
+                            // Old entity files stored FBX mesh refs as plain paths. LoadAssetAtPath
+                            // returns the FBX root GameObject, not the Mesh sub-asset. If the loaded
+                            // type doesn't match the property's expected type, search sub-assets instead.
+                            if (asset != null)
+                            {
+                                Type expectedType = GetPropertyObjectType(prop);
+                                if (expectedType != null && !expectedType.IsAssignableFrom(asset.GetType()))
+                                {
+                                    asset = null;
+                                    foreach (var a in AssetDatabase.LoadAllAssetsAtPath(assetPath))
+                                    {
+                                        if (a != null && expectedType.IsAssignableFrom(a.GetType()))
+                                        { asset = a; break; }
+                                    }
+                                }
+                            }
+                        }
                     }
                     if (asset != null)
                         prop.objectReferenceValue = asset;
