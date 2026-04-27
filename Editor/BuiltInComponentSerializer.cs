@@ -300,8 +300,16 @@ namespace UnityAIBridge.Editor
                         string p = subObj["path"]?.Value<string>();
                         string n = subObj["name"]?.Value<string>();
                         if (!string.IsNullOrEmpty(p) && !string.IsNullOrEmpty(n))
+                        {
+                            Type expectedType = GetPropertyObjectType(prop);
                             foreach (var a in AssetDatabase.LoadAllAssetsAtPath(p))
-                                if (a != null && a.name == n) { asset = a; break; }
+                            {
+                                if (a == null || a.name != n) continue;
+                                if (expectedType != null && !expectedType.IsAssignableFrom(a.GetType())) continue;
+                                asset = a;
+                                break;
+                            }
+                        }
                         else if (!string.IsNullOrEmpty(p))
                             asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(p);
                     }
@@ -393,6 +401,23 @@ namespace UnityAIBridge.Editor
                     ApplyGeneric(prop, token);
                     break;
             }
+        }
+
+        // Parses prop.type ("PPtr<$Mesh>") to resolve the expected UnityEngine type,
+        // so sub-asset lookups can skip same-named assets of the wrong type (e.g. the
+        // root FBX GameObject sharing a name with its Mesh sub-asset).
+        private static Type GetPropertyObjectType(SerializedProperty prop)
+        {
+            string t = prop.type;
+            if (!t.StartsWith("PPtr<$", StringComparison.Ordinal) || !t.EndsWith(">", StringComparison.Ordinal))
+                return null;
+            string typeName = t.Substring(6, t.Length - 7);
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var type = asm.GetType("UnityEngine." + typeName) ?? asm.GetType(typeName);
+                if (type != null) return type;
+            }
+            return null;
         }
 
         private static void ApplyGeneric(SerializedProperty prop, JToken token)
