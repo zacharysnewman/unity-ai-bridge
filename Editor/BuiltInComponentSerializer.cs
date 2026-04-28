@@ -42,6 +42,8 @@ namespace UnityAIBridge.Editor
             var obj = new JObject();
             obj["type"] = component.GetType().FullName;
 
+            bool isSkinnedMesh = component is SkinnedMeshRenderer;
+
             var so = new SerializedObject(component);
             var iter = so.GetIterator();
 
@@ -51,6 +53,8 @@ namespace UnityAIBridge.Editor
                 try
                 {
                     var token = SerializeProp(iter);
+                    if (isSkinnedMesh && iter.name == "m_Mesh")
+                        Debug.Log($"[UnityAIBridge][DBG] Serialize SkinnedMeshRenderer.m_Mesh: objectRef={iter.objectReferenceValue} token={token?.ToString() ?? "<null method return>"}");
                     if (token != null)
                         obj[iter.name] = token;
                 }
@@ -265,7 +269,14 @@ namespace UnityAIBridge.Editor
 
         public static void Deserialize(Component component, JObject data)
         {
+            bool isSkinnedMesh = component is SkinnedMeshRenderer;
             var so = new SerializedObject(component);
+
+            if (isSkinnedMesh)
+            {
+                var meshPropBefore = so.FindProperty("m_Mesh");
+                Debug.Log($"[UnityAIBridge][DBG] Deserialize SkinnedMeshRenderer BEFORE: m_Mesh={meshPropBefore?.objectReferenceValue} token in JSON={data["m_Mesh"]?.ToString() ?? "<absent>"}");
+            }
 
             foreach (var kvp in data)
             {
@@ -278,6 +289,14 @@ namespace UnityAIBridge.Editor
             }
 
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            if (isSkinnedMesh)
+            {
+                so.Update();
+                var meshPropAfter = so.FindProperty("m_Mesh");
+                Debug.Log($"[UnityAIBridge][DBG] Deserialize SkinnedMeshRenderer AFTER: m_Mesh={meshPropAfter?.objectReferenceValue}");
+            }
+
             EditorUtility.SetDirty(component);
         }
 
