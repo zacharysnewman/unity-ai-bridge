@@ -1,3 +1,10 @@
+## [1.5.4](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.3...v1.5.4) (2026-04-28)
+
+
+### Bug Fixes
+
+* handle UnityObject collection fields in DeserializeComponentFields ([e6c99b1](https://github.com/zacharysnewman/unity-ai-bridge/commit/e6c99b1f670771ffa1cd66c5cbcf3b3c8f7bb6e8))
+
 ## [1.5.3](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.2...v1.5.3) (2026-04-27)
 
 
