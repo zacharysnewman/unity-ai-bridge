@@ -1,3 +1,5 @@
+# WARNING! WIP! CLEARS SKINNED MESH RENDERER MESHES ON INITIALIZE!
+
 # Unity AI Bridge
 
 A live-sync, text-based scene format for Unity. Replaces binary `.unity` scene serialization with human- and AI-readable per-entity JSON files, bidirectionally synced with the Unity Editor in real time.
