@@ -493,6 +493,51 @@ namespace UnityAIBridge.Editor
                         Debug.LogWarning($"[UnityAIBridge] Asset not found for field {prop.Key} on {type.Name}");
                     continue;
                 }
+
+                {
+                    Type elemType = GetUnityObjectCollectionElementType(field.FieldType);
+                    if (elemType != null)
+                    {
+                        if (prop.Value is JArray jArr)
+                        {
+                            bool isEntityType = typeof(GameObject).IsAssignableFrom(elemType) || typeof(Component).IsAssignableFrom(elemType);
+                            var resultList = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elemType));
+                            foreach (var item in jArr)
+                            {
+                                UnityEngine.Object resolved = null;
+                                if (isEntityType)
+                                {
+                                    if (item is JObject refObj && refObj["targetUUID"] != null && manager != null)
+                                    {
+                                        string targetUuid = refObj["targetUUID"].Value<string>();
+                                        GameObject targetGo = manager.GetByUUID(targetUuid);
+                                        if (targetGo != null)
+                                            resolved = typeof(GameObject).IsAssignableFrom(elemType)
+                                                ? (UnityEngine.Object)targetGo
+                                                : targetGo.GetComponent(elemType);
+                                    }
+                                }
+                                else
+                                {
+                                    resolved = DeserializeAssetReference(item, elemType);
+                                }
+                                resultList.Add(resolved);
+                            }
+                            if (field.FieldType.IsArray)
+                            {
+                                var arr = System.Array.CreateInstance(elemType, resultList.Count);
+                                resultList.CopyTo(arr, 0);
+                                field.SetValue(component, arr);
+                            }
+                            else
+                            {
+                                field.SetValue(component, resultList);
+                            }
+                        }
+                        continue;
+                    }
+                }
+
                 try
                 {
                     object value = prop.Value.ToObject(field.FieldType, FieldSerializer);
