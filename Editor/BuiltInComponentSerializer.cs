@@ -42,8 +42,6 @@ namespace UnityAIBridge.Editor
             var obj = new JObject();
             obj["type"] = component.GetType().FullName;
 
-            bool isSkinnedMesh = component is SkinnedMeshRenderer;
-
             var so = new SerializedObject(component);
             var iter = so.GetIterator();
 
@@ -53,8 +51,6 @@ namespace UnityAIBridge.Editor
                 try
                 {
                     var token = SerializeProp(iter);
-                    if (isSkinnedMesh && iter.name == "m_Mesh")
-                        Debug.Log($"[UnityAIBridge][DBG] Serialize SkinnedMeshRenderer.m_Mesh: objectRef={iter.objectReferenceValue} token={token?.ToString() ?? "<null method return>"}");
                     if (token != null)
                         obj[iter.name] = token;
                 }
@@ -269,14 +265,7 @@ namespace UnityAIBridge.Editor
 
         public static void Deserialize(Component component, JObject data)
         {
-            bool isSkinnedMesh = component is SkinnedMeshRenderer;
             var so = new SerializedObject(component);
-
-            if (isSkinnedMesh)
-            {
-                var meshPropBefore = so.FindProperty("m_Mesh");
-                Debug.Log($"[UnityAIBridge][DBG] Deserialize SkinnedMeshRenderer BEFORE: m_Mesh={meshPropBefore?.objectReferenceValue} token in JSON={data["m_Mesh"]?.ToString() ?? "<absent>"}");
-            }
 
             foreach (var kvp in data)
             {
@@ -289,14 +278,6 @@ namespace UnityAIBridge.Editor
             }
 
             so.ApplyModifiedPropertiesWithoutUndo();
-
-            if (isSkinnedMesh)
-            {
-                so.Update();
-                var meshPropAfter = so.FindProperty("m_Mesh");
-                Debug.Log($"[UnityAIBridge][DBG] Deserialize SkinnedMeshRenderer AFTER: m_Mesh={meshPropAfter?.objectReferenceValue}");
-            }
-
             EditorUtility.SetDirty(component);
         }
 
@@ -506,6 +487,12 @@ namespace UnityAIBridge.Editor
         {
             if (prop.isArray && token is JArray arr)
             {
+                // Empty array in JSON means the property was not overridden at the instance
+                // level — skip entirely to preserve values from the prefab definition.
+                // Resizing to 0 can trigger Unity's internal consistency enforcement:
+                // e.g. SkinnedMeshRenderer clears m_Mesh when m_BlendShapeWeights is
+                // resized to 0 but the mesh still has blend shapes.
+                if (arr.Count == 0) return;
                 // Guard: only set arraySize when it actually changes. Setting it to the
                 // same value marks the property dirty, which can cause Unity to clear
                 // scene-object slots (e.g. m_Bones) on ApplyModifiedPropertiesWithoutUndo.
