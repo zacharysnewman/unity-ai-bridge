@@ -1,3 +1,10 @@
+## [1.5.5](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.4...v1.5.5) (2026-04-29)
+
+
+### Bug Fixes
+
+* skip empty arrays in ApplyGeneric to preserve prefab-defined values ([b0e752d](https://github.com/zacharysnewman/unity-ai-bridge/commit/b0e752db68285e2d030f70652557ecbc68542aaa))
+
 ## [1.5.4](https://github.com/zacharysnewman/unity-ai-bridge/compare/v1.5.3...v1.5.4) (2026-04-28)
 
 
