@@ -93,8 +93,8 @@
 | N6 | Component with `public GameObject target` set to another entity, and `public MyComponent other` set to a component on a third entity — run "Initialize Scene", then edit both `targetUUID` values in JSON | Write: both fields serialize as `{ "targetUUID": "..." }`. Read: both resolve to correct objects on hot-reload. Forward refs (A→B where B loads first) also resolve correctly during bootstrap | NOT TESTED | |
 | N7 | JSON sets a `targetUUID` ref → save the scene → close and reopen | Reference still set correctly after Unity deserializes the `.unity` file | NOT TESTED | **Key persistence test** — verifies `field.SetValue` on a GameObject ref is persisted by Unity's scene serializer, not just held in memory |
 | N8 | `public GameObject target` set to a non-managed object (no EntitySync), or `targetUUID` set to a missing UUID | Warning logged; field serialized/resolved as `null` | NOT TESTED | Covers both null-on-write and null-on-read paths |
-| N9 | `patch-entities Level_A "component == BoxCollider" "m_IsTrigger = true"` | BoxCollider entries updated in JSON; Unity hot-reloads and isTrigger changes on all matching colliders | NOT TESTED | |
-| N10 | `patch-entities Level_A "component == BoxCollider" "m_IsTrigger = true"` then `patch-entities Level_A --undo` | `m_IsTrigger` reverted to previous values on all affected entities | NOT TESTED | |
+| N9 | `query-scene Level_A "component == BoxCollider" \| patch-entities --stdin Level_A "m_IsTrigger = true"` | BoxCollider entries updated in JSON; Unity hot-reloads and isTrigger changes on all matching colliders | NOT TESTED | |
+| N10 | `query-scene Level_A "component == BoxCollider" \| patch-entities --stdin Level_A "m_IsTrigger = true"` then `patch-entities Level_A --undo` | `m_IsTrigger` reverted to previous values on all affected entities | NOT TESTED | |
 
 ## CLI Tools
 

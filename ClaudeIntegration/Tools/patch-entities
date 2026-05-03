@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-patch-entities <scene> "<filter>" "<patch>"
-patch-entities <scene> --stdin "<patch>"
+patch-entities <scene> <uuid>... "<patch>"
+patch-entities --stdin <scene> "<patch>"
 patch-entities <scene> --undo
 patch-entities <scene> --history
 
-Applies a patch expression to all entities matching a filter.
+Applies a patch expression to the specified entities by UUID.
 Writes are applied directly to entity JSON files — Unity hot-reloads instantly.
 Every patch is recorded in patch-history.json (last 10 entries) for undo.
 
 Patch operators: =  +=  -=  *=  /=  %=
 
-Field paths (same as query-scene):
+Field paths:
   transform.pos.x / .y / .z
   transform.rot.x / .y / .z
   transform.scl.x / .y / .z
   name, activeSelf, isStatic, tag, layer, prefabPath, parentUuid, siblingIndex
   Any field present in customData or builtInComponents entries
 
---stdin reads UUIDs from stdin (one per line or JSON array) instead of running
-a filter, making it composable with query-scene and get-visible-entities:
+--stdin reads UUIDs from stdin (one per line or JSON array), making it
+composable with query-scene and get-visible-entities:
 
   query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
   get-visible-entities Level_A | patch-entities --stdin Level_A "transform.pos.y += 2"
@@ -29,11 +29,10 @@ a filter, making it composable with query-scene and get-visible-entities:
 --history prints a one-line summary of each recorded patch (timestamp, description, count).
 
 Examples:
-  patch-entities Level_A "prefab contains Cube" "transform.pos.y += 2"
-  patch-entities Level_A "component == Enemy" "transform.rot.y = 0"
-  patch-entities Level_A "name contains Wall" "transform.scl.x *= 2"
-  patch-entities Level_A "transform.pos.y < 0" "transform.pos.y = 0"
-  patch-entities Level_A "prefab contains Coin" "transform.pos.y %= 3"
+  query-scene Level_A "component == Enemy" | patch-entities --stdin Level_A "transform.rot.y = 0"
+  get-selected-entities | patch-entities --stdin Level_A "activeSelf = false"
+  patch-entities Level_A <uuid> "transform.pos.y += 2"
+  patch-entities Level_A <uuid1> <uuid2> "transform.scl.x *= 2"
   patch-entities Level_A --undo
   patch-entities Level_A --history
 """
@@ -67,82 +66,7 @@ def list_available_scenes():
     return sorted(scenes)
 
 
-# ── Filter (from query-scene) ──────────────────────────────────────────────────
-
-TOKEN_RE = re.compile(r'\bAND\b|\bOR\b|\bcontains\b|==|!=|>=|<=|>|<|%|"[^"]*"|\'[^\']*\'|\S+')
-OPERATORS = {"==", "!=", ">=", "<=", ">", "<", "contains"}
-
-
-def tokenize(expr):
-    return TOKEN_RE.findall(expr)
-
-
-class Cmp:
-    def __init__(self, field, op, value):
-        self.field = field; self.op = op; self.value = value.strip('"\'')
-
-class ModCmp:
-    def __init__(self, field, modulus, op, value):
-        self.field = field; self.modulus = modulus.strip('"\'')
-        self.op = op; self.value = value.strip('"\'')
-
-class And:
-    def __init__(self, left, right):
-        self.left = left; self.right = right
-
-class Or:
-    def __init__(self, left, right):
-        self.left = left; self.right = right
-
-
-def parse_filter(expr):
-    tokens = tokenize(expr)
-    pos = [0]
-
-    def peek(): return tokens[pos[0]] if pos[0] < len(tokens) else None
-    def consume():
-        t = tokens[pos[0]]; pos[0] += 1; return t
-
-    def parse_cmp():
-        field = consume(); op = consume()
-        if op == "%":
-            modulus = consume(); cmp_op = consume()
-            if cmp_op not in OPERATORS: raise ValueError(f"Unknown operator: {cmp_op!r}")
-            return ModCmp(field, modulus, cmp_op, consume())
-        if op not in OPERATORS: raise ValueError(f"Unknown operator: {op!r}")
-        return Cmp(field, op, consume())
-
-    def parse_and():
-        left = parse_cmp()
-        while peek() == "AND": consume(); left = And(left, parse_cmp())
-        return left
-
-    def parse_or():
-        left = parse_and()
-        while peek() == "OR": consume(); left = Or(left, parse_and())
-        return left
-
-    return parse_or()
-
-
-def cmp_values(actual, op, expected):
-    if actual is None:
-        null_values = {"null", "none", ""}
-        if op == "==": return str(expected).lower() in null_values
-        if op == "!=": return str(expected).lower() not in null_values
-        return False
-    try:
-        a, b = float(actual), float(expected)
-        return {"==": a == b, "!=": a != b, ">=": a >= b,
-                "<=": a <= b, ">": a > b, "<": a < b}[op]
-    except (ValueError, TypeError, KeyError):
-        pass
-    a_s, b_s = str(actual).lower(), str(expected).lower()
-    if op == "contains": return b_s in a_s
-    if op == "==": return a_s == b_s
-    if op == "!=": return a_s != b_s
-    return False
-
+# ── Entity field lookup (for history before-value capture) ────────────────────
 
 def get_entity_field(entity, field):
     parts = field.lower().split(".")
@@ -158,26 +82,6 @@ def get_entity_field(entity, field):
     for comp in entity.get("builtInComponents", []) + entity.get("customData", []):
         if field in comp: return comp[field]
     return None
-
-
-def eval_filter(node, entity):
-    if isinstance(node, And): return eval_filter(node.left, entity) and eval_filter(node.right, entity)
-    if isinstance(node, Or): return eval_filter(node.left, entity) or eval_filter(node.right, entity)
-    if isinstance(node, Cmp):
-        if node.field.lower() == "component":
-            for comp in entity.get("builtInComponents", []) + entity.get("customData", []):
-                t = comp.get("type", ""); short = t.split(".")[-1]
-                if cmp_values(t, node.op, node.value) or cmp_values(short, node.op, node.value):
-                    return True
-            return False
-        return cmp_values(get_entity_field(entity, node.field), node.op, node.value)
-    if isinstance(node, ModCmp):
-        actual = get_entity_field(entity, node.field)
-        if actual is None: return False
-        try:
-            return cmp_values(float(actual) % float(node.modulus), node.op, node.value)
-        except (ValueError, TypeError): return False
-    return False
 
 
 # ── Patch expression ───────────────────────────────────────────────────────────
@@ -389,7 +293,7 @@ def main():
     args = [a for a in args if a not in ("--stdin", "--undo", "--history")]
 
     if not args:
-        print("Usage: patch-entities <scene> \"<filter>\" \"<patch>\"", file=sys.stderr)
+        print("Usage: patch-entities <scene> <uuid>... \"<patch>\"", file=sys.stderr)
         sys.exit(1)
 
     scene_name = args[0]
@@ -420,31 +324,22 @@ def main():
     # Normal patch mode
     if use_stdin:
         if len(args) < 1:
-            print("Usage: patch-entities <scene> --stdin \"<patch>\"", file=sys.stderr)
+            print("Usage: patch-entities --stdin <scene> \"<patch>\"", file=sys.stderr)
             sys.exit(1)
         patch_expr = args[0]
-        filter_ast = None
+        uuids = read_uuids_from_stdin()
     else:
         if len(args) < 2:
-            print("Usage: patch-entities <scene> \"<filter>\" \"<patch>\"", file=sys.stderr)
+            print("Usage: patch-entities <scene> <uuid>... \"<patch>\"", file=sys.stderr)
             sys.exit(1)
-        filter_expr, patch_expr = args[0], args[1]
-        try:
-            filter_ast = parse_filter(filter_expr)
-        except Exception as e:
-            print(f"Error parsing filter: {e}", file=sys.stderr)
-            sys.exit(1)
+        uuids = args[:-1]
+        patch_expr = args[-1]
 
     try:
         patch_field, patch_op, patch_value = parse_patch(patch_expr)
     except ValueError as e:
         print(f"Error parsing patch: {e}", file=sys.stderr)
         sys.exit(1)
-
-    if use_stdin:
-        uuids = read_uuids_from_stdin()
-    else:
-        uuids = [os.path.splitext(f)[0] for f in os.listdir(entities_dir) if f.endswith(".json")]
 
     patched, skipped, errors = 0, 0, 0
     changes = []
@@ -461,10 +356,6 @@ def main():
         except Exception as e:
             print(f"Warning: could not read {uuid}: {e}", file=sys.stderr)
             errors += 1
-            continue
-
-        if filter_ast and not eval_filter(filter_ast, entity):
-            skipped += 1
             continue
 
         before_value = get_entity_field(entity, patch_field)

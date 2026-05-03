@@ -619,12 +619,12 @@ The solution is a **sidecar `index.ndjson`** (§3.1) plus a three-layer query mo
 | `get-scene-path [scene]` | Get active scene asset path |
 | `get-camera [scene]` | Get scene view camera position and rotation |
 | `get-visible-entities [scene]` | Get UUIDs of entities visible in the scene view frustum |
-| `patch-entities <scene> "<filter>" "<patch>"` | Batch-apply a field mutation to all matching entities |
+| `patch-entities <scene> <uuid>... "<patch>"` | Apply a field mutation to the specified entities by UUID |
 | `create-entities <scene> '<spec>'` | Create new entities and return their UUIDs |
 | `delete-entities <scene> <uuid>...` | Delete entities by UUID |
 
 `query-scene` filter operators: `== != >= <= > < contains AND OR` — modulo: `field % divisor op value`.
-`patch-entities` patch operators: `= += -= *= /= %=`.
+`patch-entities` patch operators: `= += -= *= /= %=`. Use `--stdin` to pipe UUIDs from `query-scene` or other UUID producers.
 
 ### Bidirectional Selection Sync
 

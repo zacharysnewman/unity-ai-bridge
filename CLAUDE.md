@@ -39,7 +39,7 @@ Nine CLI tools are installed in `Tools/` at the project root. Prefer these over 
 | `Tools/get-scene-path [scene]` | Get the active scene asset path |
 | `Tools/get-camera [scene]` | Get scene view camera position and rotation |
 | `Tools/get-visible-entities [scene]` | Get UUIDs of entities visible in the scene view frustum |
-| `Tools/patch-entities <scene> "<filter>" "<patch>"` | Batch-apply a field mutation to all matching entities |
+| `Tools/patch-entities <scene> <uuid>... "<patch>"` | Apply a field mutation to the specified entities by UUID |
 | `Tools/create-entities <scene> '<spec-json>'` | Create new entities and return their UUIDs |
 | `Tools/delete-entities <scene> <uuid>...` | Delete entities by UUID |
 
@@ -100,18 +100,19 @@ Tools/get-camera Level_A                     # scoped to a specific scene
 ### patch-entities
 
 ```bash
-patch-entities Level_A "prefab contains Cube" "transform.pos.y += 2"
-patch-entities Level_A "component == Enemy" "transform.rot.y = 0"
-patch-entities Level_A "name contains Wall" "transform.scl.x *= 2"
-patch-entities Level_A "transform.pos.y < 0" "transform.pos.y = 0"
+patch-entities Level_A <uuid> "transform.pos.y += 2"
+patch-entities Level_A <uuid1> <uuid2> "transform.rot.y = 0"
+query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
+get-selected-entities | patch-entities --stdin Level_A "activeSelf = false"
 ```
 
 Patch operators: `=  +=  -=  *=  /=  %=`
 
-Field paths are the same as `query-scene`. Composes with `--stdin`:
+Field paths are the same as `query-scene`. Use `--stdin` to pipe UUIDs from any UUID-producing tool:
 
 ```bash
-query-scene Level_A "prefab contains Cube" | patch-entities --stdin Level_A "transform.pos.y += 2"
+query-scene Level_A "component == Enemy" | patch-entities --stdin Level_A "transform.rot.y = 0"
+get-visible-entities Level_A | patch-entities --stdin Level_A "transform.pos.y += 1"
 ```
 
 Every patch is automatically recorded in `patch-history.json` (last 10 entries). Use `--history` to review recent changes and `--undo` to revert the most recent patch — works regardless of current selection or camera position:
@@ -121,7 +122,7 @@ patch-entities Level_A --history   # one-line summary per recorded patch
 patch-entities Level_A --undo      # revert the most recent patch
 ```
 
-The `[scene]` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
+The `<scene>` argument is the scene directory name — the path relative to `Assets/SceneData/` (e.g. `Level_A` or `Scenes/Level_A`). Matched by directory basename, so the bare scene name works regardless of nesting.
 
 ---
 
